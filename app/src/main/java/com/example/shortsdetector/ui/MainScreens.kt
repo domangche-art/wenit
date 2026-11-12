@@ -353,6 +353,7 @@ fun DeveloperScreen(vm: DeveloperViewModel, onBack: () -> Unit, onRestarted: () 
             SingleChoiceRow(durationText(ms), s.thresholdMs == ms) { vm.setThreshold(ms) }
         }
         SwitchRow(stringResource(R.string.switch_popup), s.popupEnabled, onChange = vm::setPopup)
+        SwitchRow(stringResource(R.string.switch_character), s.characterEnabled, onChange = vm::setCharacter)
 
         SectionTitle(stringResource(R.string.dev_demo_threshold))
         DemoMode.THRESHOLD_CHOICES_MS.forEach { ms ->

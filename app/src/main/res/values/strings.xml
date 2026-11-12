@@ -38,6 +38,7 @@
     <string name="policy_reason_user_threshold">사용자가 알림 시점을 바꿨어요</string>
     <string name="duration_seconds">%1$d초</string>
     <string name="duration_minutes">%1$d분</string>
+    <string name="switch_character">개입 때 캐릭터 표시</string>
     <string name="switch_popup">화면 중앙 팝업으로 알리기 (끄면 상단 알림만)</string>
     <string name="app_label_youtube">YouTube Shorts</string>
     <string name="app_label_instagram">Instagram Reels</string>

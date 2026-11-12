@@ -17,4 +17,9 @@
     <dimen name="breathing_character_size">120dp</dimen>
     <dimen name="breathing_title_text">24sp</dimen>
     <dimen name="breathing_count_text">56sp</dimen>
+    <!-- 개입 때 캐릭터(별도 창). 자리가 모자라면 줄인다 -->
+    <dimen name="character_overlay_width_card">112dp</dimen>
+    <dimen name="character_overlay_width_full">150dp</dimen>
+    <dimen name="character_overlay_card_overlap">8dp</dimen>
+    <dimen name="character_overlay_margin">16dp</dimen>
 </resources>

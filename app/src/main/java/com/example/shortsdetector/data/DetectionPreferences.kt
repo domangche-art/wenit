@@ -19,6 +19,7 @@ object DetectionPreferences {
     /** 예전 임계값 저장 키. [InterventionPolicyPreferences] 가 정책으로 한 번 옮기고 지운다. */
     const val LEGACY_KEY_WATCH_THRESHOLD_MS = "watch_threshold_ms"
     const val KEY_POPUP_ENABLED = "popup_enabled"
+    const val KEY_CHARACTER_ENABLED = "character_enabled"
 
     fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -41,6 +42,16 @@ object DetectionPreferences {
 
     fun setPopupEnabled(context: Context, enabled: Boolean) =
         prefs(context).edit { putBoolean(KEY_POPUP_ENABLED, enabled) }
+
+    /** 개입 때 캐릭터를 함께 띄운다(테스트용, 개발자 화면). 기본 켜짐. 끄면 캐릭터 없이 지금과 같다. */
+    fun isCharacterEnabled(context: Context): Boolean = isCharacterEnabled(prefs(context))
+
+    fun setCharacterEnabled(context: Context, enabled: Boolean) = setCharacterEnabled(prefs(context), enabled)
+
+    internal fun isCharacterEnabled(p: SharedPreferences): Boolean = p.getBoolean(KEY_CHARACTER_ENABLED, true)
+
+    internal fun setCharacterEnabled(p: SharedPreferences, enabled: Boolean) =
+        p.edit { putBoolean(KEY_CHARACTER_ENABLED, enabled) }
 
     fun enabledPackages(context: Context): Set<String> = buildSet {
         if (isYouTubeEnabled(context)) add(YouTubeViewIds.PACKAGE)

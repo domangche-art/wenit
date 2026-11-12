@@ -43,6 +43,7 @@ import com.example.shortsdetector.intervention.GoalRemaining
 import com.example.shortsdetector.intervention.InterventionCoordinator
 import com.example.shortsdetector.intervention.InterventionCopyInput
 import com.example.shortsdetector.intervention.InterventionPopup
+import com.example.shortsdetector.intervention.character.CharacterOverlay
 import com.example.shortsdetector.intervention.InterventionResult
 import com.example.shortsdetector.intervention.MaxLevelRepeatRule
 import com.example.shortsdetector.intervention.LiveRecordFilter
@@ -91,7 +92,7 @@ class ShortsDetectionService : AccessibilityService() {
         DetectionConfig.MIN_RENOTIFY_INTERVAL_MS
     )
     private val snapshotter = AccessibilitySnapshotter(DetectionConfig.MAX_NODES_VISITED)
-    private val popup = InterventionPopup(this)
+    private val popup = InterventionPopup(this, CharacterOverlay(this) { DetectionPreferences.isCharacterEnabled(this) })
     private val playbackControls by lazy { AudioPlaybackControls(this) }
     private val pauser by lazy {
         PlaybackPauser(playbackControls) { delayMs, action -> pauseHandler.postDelayed(action, delayMs) }

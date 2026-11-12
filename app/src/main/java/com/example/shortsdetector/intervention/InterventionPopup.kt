@@ -9,12 +9,16 @@ import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.TextView
 import com.example.shortsdetector.R
 import com.example.shortsdetector.ShortsDetectionService
 import com.example.shortsdetector.data.usage.InterventionOutcome
 import com.example.shortsdetector.data.usage.InterventionUserReason
+import com.example.shortsdetector.intervention.character.Box
+import com.example.shortsdetector.intervention.character.CharacterAnchor
+import com.example.shortsdetector.intervention.character.CharacterOverlay
 import com.example.shortsdetector.ui.WenitActivity
 
 /**
@@ -32,9 +36,14 @@ import com.example.shortsdetector.ui.WenitActivity
  *    재생 중에 앱을 벗어나면 YouTube 가 작은 창(PiP)으로 넘어간다.
  *
  * 메인 스레드에서만 호출한다. 예외는 여기서 격리하고 실패하면 false 를 돌려준다(호출 측이 알림으로 대체).
+ *  - [character] 가 있으면 개입과 함께 캐릭터를 띄운다(카드 위 / 숨 고르기 문구를 피한 곳). 캐릭터는 별도 창이고
+ *    개입이 닫히면 같이 사라진다. 캐릭터가 꺼져 있거나 실패해도 개입 동작은 같다.
  * TODO: VERIFY ON DEVICE — 제조사 ROM 에서 전체 화면 오버레이 표시와 시스템 탐색 제스처.
  */
-class InterventionPopup(private val service: AccessibilityService) {
+class InterventionPopup(
+    private val service: AccessibilityService,
+    private val character: CharacterOverlay? = null
+) {
 
     interface Listener {
         fun onReasonChosen(reason: InterventionUserReason)
@@ -123,6 +132,7 @@ class InterventionPopup(private val service: AccessibilityService) {
             wm.addView(v, params)
             view = v
             screen.attached(v, host)
+            attachCharacter(v, spec.window)
             true
         } catch (e: RuntimeException) {
             // BadTokenException, InflateException 등. 원문 없이 예외 종류만 남긴다.
@@ -204,6 +214,47 @@ class InterventionPopup(private val service: AccessibilityService) {
         }
     }
 
+    /** 개입 창의 배치가 끝난 뒤 캐릭터를 띄우고, 배치가 바뀌면(Lv.3 버튼 등장) 자리를 옮긴다. */
+    private fun attachCharacter(v: View, window: OverlayWindow) {
+        val c = character ?: return
+        val widthPx = service.resources.getDimensionPixelSize(
+            if (window == OverlayWindow.FULL_SCREEN) R.dimen.character_overlay_width_full else R.dimen.character_overlay_width_card
+        )
+        v.post { if (view === v) c.show(anchorFor(v, window), widthPx) }
+        v.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (view === v && c.isShowing) c.moveTo(anchorFor(v, window))
+        }
+    }
+
+    /** 카드형은 카드 바로 위, 화면 전체형은 내용(캐릭터 자리·문구·버튼)을 피한 곳 */
+    private fun anchorFor(v: View, window: OverlayWindow): CharacterAnchor {
+        val res = service.resources
+        return when (window) {
+            OverlayWindow.FULL_SCREEN -> CharacterAnchor.ClearOf(
+                contentBox(v), res.getDimensionPixelSize(R.dimen.character_overlay_margin)
+            )
+            OverlayWindow.CARD, OverlayWindow.FLOATING -> CharacterAnchor.AboveCard(
+                boxOnScreen(v), res.getDimensionPixelSize(R.dimen.character_overlay_card_overlap)
+            )
+        }
+    }
+
+    private fun boxOnScreen(v: View): Box {
+        val at = IntArray(2)
+        v.getLocationOnScreen(at)
+        return Box(at[0], at[1], at[0] + v.width, at[1] + v.height)
+    }
+
+    /** 보이는 자식들을 합친 영역. 자식이 없으면 창 전체. */
+    private fun contentBox(v: View): Box {
+        val group = v as? ViewGroup ?: return boxOnScreen(v)
+        val boxes = (0 until group.childCount).map(group::getChildAt)
+            .filter { it.visibility == View.VISIBLE && it.height > 0 }
+            .map(::boxOnScreen)
+        if (boxes.isEmpty()) return boxOnScreen(v)
+        return Box(boxes.minOf { it.left }, boxes.minOf { it.top }, boxes.maxOf { it.right }, boxes.maxOf { it.bottom })
+    }
+
     private fun paramsFor(window: OverlayWindow) = when (window) {
         OverlayWindow.CARD -> cardParams()
         OverlayWindow.FULL_SCREEN -> fullScreenParams()
@@ -236,18 +287,10 @@ class InterventionPopup(private val service: AccessibilityService) {
         PixelFormat.TRANSLUCENT
     ).apply { windowAnimations = android.R.style.Animation_Dialog }
 
-    /** FLAG_NOT_TOUCH_MODAL: 창 바깥 터치는 아래 앱으로 간다. 위치는 왼쪽 위 기준이라 끌기로 옮기기 쉽다. */
-    private fun floatingParams() = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.WRAP_CONTENT,
-        WindowManager.LayoutParams.WRAP_CONTENT,
-        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-        PixelFormat.TRANSLUCENT
-    ).apply { gravity = Gravity.TOP or Gravity.START }
+    private fun floatingParams() = OverlayWindows.floatingParams()
 
     fun dismiss() {
+        character?.dismiss()
         timeline?.cancel()
         timeline = null
         handler.removeCallbacksAndMessages(null)

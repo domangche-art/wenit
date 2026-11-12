@@ -94,6 +94,8 @@ interface AppRepository {
     fun setDemoMode(enabled: Boolean)
     fun isPopupEnabled(): Boolean
     fun setPopupEnabled(enabled: Boolean)
+    fun isCharacterEnabled(): Boolean
+    fun setCharacterEnabled(enabled: Boolean)
     fun isYouTubeEnabled(): Boolean
     fun setYouTubeEnabled(enabled: Boolean)
     fun isInstagramEnabled(): Boolean
@@ -226,6 +228,10 @@ class AndroidAppRepository(context: Context) : AppRepository {
     override fun isPopupEnabled() = DetectionPreferences.isPopupEnabled(app)
 
     override fun setPopupEnabled(enabled: Boolean) = DetectionPreferences.setPopupEnabled(app, enabled)
+
+    override fun isCharacterEnabled() = DetectionPreferences.isCharacterEnabled(app)
+
+    override fun setCharacterEnabled(enabled: Boolean) = DetectionPreferences.setCharacterEnabled(app, enabled)
 
     override fun isYouTubeEnabled() = DetectionPreferences.isYouTubeEnabled(app)
 

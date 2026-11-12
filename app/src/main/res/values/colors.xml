@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 개입 팝업. 다크 모드 값은 values-night/colors.xml -->
+    <!-- 앱 아이콘 배경(원본 그림의 하늘색 평균) -->
+    <color name="ic_launcher_background">#FF59B3DF</color>
     <color name="popup_bg">#FFFFFFFF</color>
     <color name="popup_text">#FF1F1F1F</color>
     <color name="popup_text_secondary">#FF5F6368</color>

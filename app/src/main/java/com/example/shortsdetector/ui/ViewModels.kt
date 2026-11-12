@@ -503,6 +503,7 @@ data class DeveloperState(
     val thresholdMs: Long = 0,
     val demoThresholdMs: Long = 0,
     val popupEnabled: Boolean = true,
+    val characterEnabled: Boolean = true,
     val working: Boolean = false,
     val seeded: Int? = null,
     val evalRows: Int? = null,
@@ -516,8 +517,13 @@ class DeveloperViewModel(private val repo: AppRepository, private val tasks: Tas
     fun refresh() = set {
         it.copy(
             thresholdMs = repo.savedPolicy().thresholdMs, demoThresholdMs = repo.demoThresholdMs(),
-            popupEnabled = repo.isPopupEnabled()
+            popupEnabled = repo.isPopupEnabled(), characterEnabled = repo.isCharacterEnabled()
         )
+    }
+
+    fun setCharacter(enabled: Boolean) {
+        repo.setCharacterEnabled(enabled)
+        refresh()
     }
 
     fun setDemoThreshold(ms: Long) {

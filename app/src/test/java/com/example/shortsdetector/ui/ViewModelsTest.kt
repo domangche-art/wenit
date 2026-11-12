@@ -69,6 +69,7 @@ class ViewModelsTest {
         val goalList = ArrayList<Goal>()
         var currentPolicy = InterventionPolicy()
         var demoOn = false
+        var characterOn = true
         var agentOn = true
         var agentDue = false
         var agentRuns = 0
@@ -135,6 +136,8 @@ class ViewModelsTest {
         override fun restartOnboarding() { restarts++ }
         override fun isPopupEnabled() = true
         override fun setPopupEnabled(enabled: Boolean) = Unit
+        override fun isCharacterEnabled() = characterOn
+        override fun setCharacterEnabled(enabled: Boolean) { characterOn = enabled }
         override fun isYouTubeEnabled() = true
         override fun setYouTubeEnabled(enabled: Boolean) = Unit
         override fun isInstagramEnabled() = false
@@ -669,6 +672,18 @@ class ViewModelsTest {
         vm.setDemoThreshold(30_000)
         assertEquals(30_000, repo.demoThreshold)
         assertEquals(30_000, vm.state.value.demoThresholdMs)
+    }
+
+    @Test
+    fun `the character switch is on by default and turns off on the developer screen`() {
+        val vm = DeveloperViewModel(repo, Direct)
+        vm.refresh()
+        assertTrue(vm.state.value.characterEnabled)
+        vm.setCharacter(false)
+        assertFalse(repo.characterOn)
+        assertFalse(vm.state.value.characterEnabled)
+        vm.setCharacter(true)
+        assertTrue(vm.state.value.characterEnabled)
     }
 
     // --- 6단계 후속 ---
