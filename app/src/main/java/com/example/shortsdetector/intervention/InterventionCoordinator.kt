@@ -50,16 +50,32 @@ class InterventionCoordinator(
     private val clock: UsageClock,
     private val newId: () -> String = { UUID.randomUUID().toString() }
 ) {
-    private class Pending(val id: String, val sessionNumber: Int, val level: Int) {
+    private class Pending(val id: String, val sessionNumber: Int, val level: Int, val viaNotification: Boolean) {
         var reason: InterventionUserReason? = null
     }
 
     private var pending: Pending? = null
 
-    /** 개입을 보여 줬을 때. 앞선 개입이 끝나지 않았으면 IGNORED 로 끝낸다. */
-    fun begin(interventionId: String, sessionNumber: Int, level: Int) {
+    /**
+     * 개입을 보여 줬을 때. 앞선 개입이 끝나지 않았으면 IGNORED 로 끝낸다.
+     * @param viaNotification 팝업 대신 시스템 알림으로 보여 줬다
+     */
+    fun begin(interventionId: String, sessionNumber: Int, level: Int, viaNotification: Boolean = false) {
         abandon()
-        pending = Pending(interventionId, sessionNumber, level)
+        pending = Pending(interventionId, sessionNumber, level, viaNotification)
+    }
+
+    /**
+     * 다음 개입 때 새 개입 대신 갱신할 알림 개입. 답하지 않은 알림이 같은 세션에서 아직 떠 있으면 그 id 를 돌려준다.
+     * 이때 앞선 개입을 끝내지 않으므로, 답하지 않은 알림은 끝날 때(답, 세션 종료, 팝업 개입) 단계 규칙에 한 번만 반영된다.
+     *
+     * 팝업을 띄울 수 있으면 null 이다(팝업이 우선이고, 그때 앞선 알림은 IGNORED 로 끝난다). 사용자가 알림을 밀어
+     * 지웠으면([notificationShowing] false) 반응으로 보고 null 이다.
+     */
+    fun notificationToRefresh(sessionNumber: Int, popupEnabled: Boolean, notificationShowing: Boolean): String? {
+        val p = pending ?: return null
+        if (popupEnabled || !notificationShowing || !p.viaNotification || p.sessionNumber != sessionNumber) return null
+        return p.id
     }
 
     /** Lv.2 이유 선택. 답하기 전에 바꿀 수 있고, 답 없이 사라져도 고른 이유는 남는다. */

@@ -92,6 +92,9 @@ class ShortformStateMachine(private val tuning: DetectionTuning = DetectionTunin
         watchHold = hold && session != null
     }
 
+    /** 시청 보류가 켜져 있다(열린 세션이 있을 때만 true). */
+    val watchHeld: Boolean get() = watchHold
+
     val sessionPackage: String? get() = session?.packageName
 
     /** 열린 세션 번호. 없으면 null. */

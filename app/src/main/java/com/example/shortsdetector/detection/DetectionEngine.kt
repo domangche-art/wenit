@@ -95,7 +95,19 @@ class DetectionEngine(
         interventionOpen = open
         if (!closed) return
         gate.markNotified(atMs)
-        machine.sessionNumber?.let { thresholdPolicy.delayUntil(it, machine.sessionWatchMs + gate.minIntervalMs) }
+        machine.sessionNumber?.let {
+            thresholdPolicy.delayUntil(it, machine.sessionWatchMs + gate.minIntervalMs)
+            thresholdPolicy.rebase(it, machine.sessionWatchMs)
+        }
+    }
+
+    /**
+     * 다음 개입까지 쿨다운보다 길게 둘 하한(ms). 0 이면 쿨다운만 따른다. 최대 단계 반복에 쓴다.
+     * 벽시계 간격(쿨다운 판정)과 시청시간 간격 모두에 적용한다. 0 으로 풀면 바로 쿨다운 간격으로 돌아간다.
+     */
+    fun setRepeatFloor(floorMs: Long) {
+        gate.floorMs = floorMs.coerceAtLeast(0L)
+        thresholdPolicy.floorMs = gate.floorMs
     }
 
     /**
@@ -113,12 +125,12 @@ class DetectionEngine(
             return false
         }
         val ready = session != null && state == DetectionState.SHORTFORM_ESTIMATED &&
-            watchMs >= thresholdPolicy.thresholdMs && gate.canNotify(atMs)
+            watchMs >= thresholdPolicy.thresholdMs && gate.canNotify(atMs) && !machine.watchHeld
         if (ready) retrySession = null
         return ready
     }
 
-    /** 켜진 동안 열린 세션의 시간을 시청시간이 아니라 가린 시간으로 센다. */
+    /** 켜진 동안 열린 세션의 시간을 시청시간이 아니라 가린 시간으로 센다. 그동안은 개입하지 않는다. */
     fun setWatchHold(hold: Boolean) = machine.setWatchHold(hold)
 
     /** "5분만 더" 처럼 시간을 약속했으면 다음 개입을 [atWatchMs] 시청 시점까지 미룬다. */
@@ -235,9 +247,12 @@ class DetectionEngine(
         return verdict.copy(kind = VerdictKind.NOT_SHORTFORM, confidence = Confidence.LOW, reason = ReasonCode.MINIATURE_WINDOW)
     }
 
-    /** 두 번째 개입부터는 숏폼이 온전히 보일 때만 띄운다. 댓글을 쓰는 중에 끼어들지 않는다. */
+    /**
+     * 두 번째 개입부터는 숏폼이 온전히 보일 때만 띄운다. 댓글을 쓰는 중에 끼어들지 않는다.
+     * 시청 보류 중(영상이 멈춤, 앱이 화면을 덮음)에는 띄우지 않는다.
+     */
     private fun isDue(session: Int?, watchMs: Long, state: DetectionState): Boolean =
-        thresholdPolicy.isDue(session, watchMs) &&
+        !machine.watchHeld && thresholdPolicy.isDue(session, watchMs) &&
             (thresholdPolicy.isFirst(session) || state == DetectionState.SHORTFORM_ESTIMATED)
 
     private fun onObservation(obs: Observation): EngineOutput {

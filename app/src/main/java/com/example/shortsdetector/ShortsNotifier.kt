@@ -52,7 +52,9 @@ object ShortsNotifier {
         packageName: String?,
         watchMs: Long,
         /** 알림을 눌렀을 때 반응을 기록할 개입 기록 id(없으면 기록 안 함) */
-        interventionId: String? = null
+        interventionId: String? = null,
+        /** 답하지 않은 같은 개입의 알림을 고친다. 소리·진동 없이 내용만 바꾼다(새 알림을 쌓지 않음). */
+        refresh: Boolean = false
     ): Boolean {
         if (!hasPostPermission(context)) {
             Log.w(
@@ -92,8 +94,8 @@ object ShortsNotifier {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setContentIntent(contentIntent)
             .setAutoCancel(true)
-            // 조건이 깨졌다가 다시 충족되면 매번 새로 알려야 하므로 false 로 둔다.
-            .setOnlyAlertOnce(false)
+            // 새 개입은 매번 알린다. 같은 개입을 고칠 때만 조용히 바꾼다.
+            .setOnlyAlertOnce(refresh)
             .build()
 
         context.getSystemService(NotificationManager::class.java)
@@ -112,6 +114,15 @@ object ShortsNotifier {
         val sec = (ms / 1000L).coerceAtLeast(0L)
         return if (sec < 60) context.getString(R.string.duration_seconds, sec.toInt())
         else context.getString(R.string.duration_minutes, (sec / 60).toInt())
+    }
+
+    /** 개입 알림이 아직 떠 있는지. 사용자가 밀어 지웠거나 눌렀으면 false. 확인할 수 없으면 false. */
+    fun isShowing(context: Context): Boolean = try {
+        context.getSystemService(NotificationManager::class.java)
+            ?.activeNotifications?.any { it.id == NOTIFICATION_ID } == true
+    } catch (e: RuntimeException) {
+        Log.w(ShortsDetectionService.TAG, "알림 상태 확인 실패: ${e.javaClass.simpleName}")
+        false
     }
 
     /** 쇼츠를 벗어나면 부른다. 떠 있는 감지 알림을 지운다(없으면 아무 일도 없음). */

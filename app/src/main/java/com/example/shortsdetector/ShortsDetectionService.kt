@@ -24,6 +24,7 @@ import com.example.shortsdetector.data.usage.InterventionMethod
 import com.example.shortsdetector.data.usage.InterventionOutcome
 import com.example.shortsdetector.data.usage.InterventionUserReason
 import com.example.shortsdetector.data.usage.ReturnTracker
+import com.example.shortsdetector.data.usage.ShortsReturnConfirmer
 import com.example.shortsdetector.data.usage.SessionRecorder
 import com.example.shortsdetector.data.usage.SystemUsageClock
 import com.example.shortsdetector.data.usage.UsageDatabase
@@ -34,6 +35,7 @@ import com.example.shortsdetector.detection.adapters.youtube.YouTubeShortsAdapte
 import com.example.shortsdetector.detection.adapters.youtube.YouTubeViewIds
 import com.example.shortsdetector.detection.features.AccessibilitySnapshotter
 import com.example.shortsdetector.detection.state.DetectionTuning
+import com.example.shortsdetector.detection.state.UserPauseDetector
 import com.example.shortsdetector.ai.agent.AgentPreferences
 import com.example.shortsdetector.intervention.AgentCopyProvider
 import com.example.shortsdetector.intervention.AudioPlaybackControls
@@ -41,6 +43,8 @@ import com.example.shortsdetector.intervention.GoalRemaining
 import com.example.shortsdetector.intervention.InterventionCoordinator
 import com.example.shortsdetector.intervention.InterventionCopyInput
 import com.example.shortsdetector.intervention.InterventionPopup
+import com.example.shortsdetector.intervention.InterventionResult
+import com.example.shortsdetector.intervention.MaxLevelRepeatRule
 import com.example.shortsdetector.intervention.LiveRecordFilter
 import com.example.shortsdetector.intervention.NotificationTaps
 import com.example.shortsdetector.intervention.PlaybackPauser
@@ -88,9 +92,19 @@ class ShortsDetectionService : AccessibilityService() {
     )
     private val snapshotter = AccessibilitySnapshotter(DetectionConfig.MAX_NODES_VISITED)
     private val popup = InterventionPopup(this)
+    private val playbackControls by lazy { AudioPlaybackControls(this) }
     private val pauser by lazy {
-        PlaybackPauser(AudioPlaybackControls(this)) { delayMs, action -> pauseHandler.postDelayed(action, delayMs) }
+        PlaybackPauser(playbackControls) { delayMs, action -> pauseHandler.postDelayed(action, delayMs) }
     }
+
+    /** 사용자가 직접 멈춘 영상 판정. 앱이 멈춘 경우([PlaybackPauser.pausedByApp])와 따로 둔다. */
+    private val userPause = UserPauseDetector()
+
+    /** Lv.3 숨 고르기 카운트다운 중 */
+    private var breathing = false
+
+    /** 쇼츠 복귀를 시청이 확정된 경우만 기록한다. */
+    private val returnConfirmer = ShortsReturnConfirmer()
 
     /** 사용 기록(세션·개입). onServiceConnected 에서 만든다. 저장 실패는 감지에 영향을 주지 않는다. */
     private var usageStore: BackgroundUsageStore? = null
@@ -269,6 +283,8 @@ class ShortsDetectionService : AccessibilityService() {
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
             ScrollEventMapper.toSignal(event, now, screenHeight)?.let { s ->
                 val flip = engine.onScroll(s)
+                // 다른 영상으로 넘어갔을 수 있다. 소리 없는 영상을 멈춘 영상으로 오해하지 않게 근거를 버린다.
+                if (flip != null) userPause.onContentChanged()
                 // 페이지 넘김 가설(TODO: VERIFY ON DEVICE) 확인용. 구조 값만 남긴다.
                 Log.d(
                     TAG,
@@ -326,14 +342,16 @@ class ShortsDetectionService : AccessibilityService() {
     /** 팝업을 닫는다. 답을 받지 못한 개입은 IGNORED 로 끝낸다. */
     private fun closeIntervention() {
         popup.dismiss()
-        engine.setWatchHold(pauser.pausedByApp)
-        coordinator?.let { c -> guarded { c.abandon() } }
+        breathing = false
+        syncWatchHold()
+        coordinator?.let { c -> guarded { onFinished(c.abandon()) } }
     }
 
     /** 이탈 신호로 오버레이를 닫는다. 사용자의 반응이 아니므로 INTERRUPTED 로 남기고, 세션이 이어지면 다시 개입한다. */
     private fun interruptIntervention() {
         popup.dismiss()
-        engine.setWatchHold(pauser.pausedByApp)
+        breathing = false
+        syncWatchHold()
         coordinator?.let { c ->
             guarded { c.interrupt()?.let { engine.retryIntervention(it.sessionNumber) } }
         }
@@ -346,6 +364,7 @@ class ShortsDetectionService : AccessibilityService() {
         guarded {
             val result = c.respondTo(interventionId, InterventionOutcome.STOPPED) ?: return@guarded
             handled = true
+            onFinished(result)
             Log.i(TAG, "개입 반응(알림 탭): Lv.${result.level} ${result.outcome} → Lv.${result.nextLevel}")
             pausePlayback()
         }
@@ -356,16 +375,47 @@ class ShortsDetectionService : AccessibilityService() {
     private fun pausePlayback(done: () -> Unit = {}) {
         pauser.pause { result ->
             Log.i(TAG, "재생 일시정지: $result")
-            if (pauser.pausedByApp) engine.setWatchHold(true)
+            syncWatchHold()
             done()
         }
     }
 
-    /** 사용자가 다시 재생하면 시청시간을 다시 센다. */
+    /** 앱이 멈춘 영상을 사용자가 다시 재생하면 시청시간을 다시 센다. */
     private fun syncPausedPlayback() {
-        if (pauser.checkResumed()) {
-            engine.setWatchHold(false)
-            Log.i(TAG, "재생 다시 시작됨")
+        if (pauser.checkResumed()) Log.i(TAG, "재생 다시 시작됨(앱이 멈춘 영상)")
+    }
+
+    /**
+     * 사용자가 직접 멈춘 영상인지 오디오 상태로 갱신한다. 열린 세션이 있을 때만 판단한다.
+     * 앱이 멈췄거나 숨 고르기 중이면 사용자 멈춤으로 세지 않는다(두 경우를 섞지 않는다).
+     */
+    private fun updateUserPause(now: Long) {
+        if (engine.sessionPackage == null) {
+            userPause.onContentChanged()
+            return
+        }
+        val before = userPause.paused
+        val audio = try {
+            playbackControls.isPlaying()
+        } catch (e: RuntimeException) {
+            null
+        }
+        val paused = userPause.update(now, audio, appPaused = pauser.pausedByApp || breathing)
+        if (paused != before) {
+            Log.i(TAG, if (paused) "사용자 멈춤으로 봄: 시청시간·개입 멈춤" else "사용자 멈춤 풀림: 시청시간 이어서 셈")
+        }
+    }
+
+    /** 시청 보류 = 숨 고르기 중 || 앱이 멈춘 영상 || 사용자가 멈춘 영상. 보류 중에는 시청시간에 넣지 않고 개입하지 않는다. */
+    private fun syncWatchHold() {
+        engine.setWatchHold(breathing || pauser.pausedByApp || userPause.paused)
+    }
+
+    /** 개입 하나가 끝났다. 최대 단계 아래로 내려가면 최대 단계 반복 간격을 푼다. */
+    private fun onFinished(result: InterventionResult?) {
+        if (result == null) return
+        if (!MaxLevelRepeatRule.keepsGap(result.nextLevel, InterventionPolicyPreferences.resolve(this))) {
+            engine.setRepeatFloor(0L)
         }
     }
 
@@ -406,6 +456,8 @@ class ShortsDetectionService : AccessibilityService() {
         if (screenWidth <= 0 || screenHeight <= 0) cacheScreenSize()
         syncPausedPlayback()
         val now = SystemClock.elapsedRealtime()
+        updateUserPause(now)
+        syncWatchHold()
         engine.setInterventionOpen(popup.isShowing, now)
 
         val output = try {
@@ -497,7 +549,8 @@ class ShortsDetectionService : AccessibilityService() {
             todayWatchBeforeSessionMs = 0L
             refreshTodayWatch(n)
             InterventionPolicyPreferences.startDemoSession(this)
-            if (pauser.pausedByApp) engine.setWatchHold(true)
+            userPause.onContentChanged()
+            syncWatchHold()
             Log.i(
                 TAG,
                 "[$source] ★ 숏폼 감지 #$n pkg=${output.observation.packageName} 신뢰도=${step.startedConfidence} " +
@@ -505,7 +558,8 @@ class ShortsDetectionService : AccessibilityService() {
             )
         }
         step.resumedSession?.let { n ->
-            if (pauser.pausedByApp) engine.setWatchHold(true)
+            userPause.onContentChanged()
+            syncWatchHold()
             Log.i(TAG, "[$source] ★ 세션 #$n 이어짐 pkg=${output.observation.packageName} (누적 시청시간 유지)")
         }
         if (output.suppressedByCooldown) {
@@ -524,21 +578,33 @@ class ShortsDetectionService : AccessibilityService() {
         }
     }
 
-    /** 멈춘 뒤 다시 돌아왔는지 남긴다. 앞선 쓰기가 끝난 뒤 저장 스레드에서 처리한다. */
+    /**
+     * 멈춘 뒤 다시 돌아왔는지 남긴다. 앞선 쓰기가 끝난 뒤 저장 스레드에서 처리한다.
+     * 쇼츠 복귀는 시청이 확정됐을 때만([ShortsReturnConfirmer]), 걸린 시간은 도착 시각으로 남긴다.
+     */
     private fun recordReturn(output: EngineOutput) {
-        val shorts = output.enteredShortform
-        if (!shorts && !output.openedTargetApp) return
         val now = SystemUsageClock.epochNowMs()
+        val step = output.step
+        (step.startedSession ?: step.resumedSession)?.let { n ->
+            returnConfirmer.onEntered(n, engine.sessionProgress()?.estimatedWatchMs ?: 0L, now)
+        }
+        val progress = engine.sessionProgress()
+        val shortsAt = returnConfirmer.onProgress(progress?.sessionNumber, progress?.estimatedWatchMs ?: 0L)
+        val passedAt = output.endedSession?.let { returnConfirmer.onEnded(it.sessionNumber) }
+        val appAt = passedAt ?: now.takeIf { output.openedTargetApp }
+        if (shortsAt == null && appAt == null) return
         usageStore?.read { s ->
             val tracker = ReturnTracker(s)
-            if (shorts) tracker.onShortsReturned(now) else tracker.onTargetAppOpened(now)
+            appAt?.let(tracker::onTargetAppOpened)
+            shortsAt?.let(tracker::onShortsReturned)
         }
     }
 
     /** 현재 단계의 팝업을 우선 띄우고, 꺼져 있거나 실패하면 알림으로 대신한다. 둘 다 실패하면 쿨다운을 걸지 않는다. */
     private fun intervene(session: Int, pkg: String?, watchMs: Long, atMs: Long, source: String) {
+        if (refreshUnansweredNotification(session, pkg, watchMs, atMs, source)) return
         // 알림으로 개입 중이면 답 없는 앞선 개입이 남아 있다. 먼저 끝내야 단계가 그 결과를 반영한다.
-        coordinator?.let { c -> guarded { c.abandon() } }
+        coordinator?.let { c -> guarded { onFinished(c.abandon()) } }
         val interventionId = recorder?.newInterventionId()
         val resolved = InterventionPolicyPreferences.resolve(this)
         val level = resolved.policy.level
@@ -563,10 +629,30 @@ class ShortsDetectionService : AccessibilityService() {
                 session, method, watchMs, engine.watchThresholdMs,
                 level = level, isDemo = resolved.demoMode, id = interventionId
             )
-            if (shown) coordinator?.begin(interventionId, session, level)
+            if (shown) coordinator?.begin(interventionId, session, level, viaNotification = notified)
         }
-        if (shown) engine.onNotificationPosted(atMs)
+        if (shown) {
+            engine.onNotificationPosted(atMs)
+            // 최대 단계를 띄웠으면 다음(같은 최대 단계) 개입까지 최소 간격을 둔다. 시연 모드는 0.
+            engine.setRepeatFloor(MaxLevelRepeatRule.gapAfterShowing(level, resolved))
+        }
         engine.setInterventionOpen(popupShown, atMs)
+    }
+
+    /**
+     * 답하지 않은 알림이 떠 있으면 새 개입을 만들지 않고 그 알림의 내용만 조용히 고친다. 앞선 개입은 끝내지 않으므로
+     * 단계 규칙에는 그 개입이 끝날 때 한 번만 반영된다. @return 고쳤으면 true
+     */
+    private fun refreshUnansweredNotification(session: Int, pkg: String?, watchMs: Long, atMs: Long, source: String): Boolean {
+        val c = coordinator ?: return false
+        val id = c.notificationToRefresh(
+            session, DetectionPreferences.isPopupEnabled(this), ShortsNotifier.isShowing(this)
+        ) ?: return false
+        if (!ShortsNotifier.notifyWatchThreshold(this, session, pkg, watchMs, id, refresh = true)) return false
+        Log.i(TAG, "[$source] 답 없는 알림 갱신 #$session 시청=${watchMs}ms (새 개입 아님)")
+        engine.onNotificationPosted(atMs)
+        engine.setInterventionOpen(false, atMs)
+        return true
     }
 
     private val popupListener = object : InterventionPopup.Listener {
@@ -578,6 +664,7 @@ class ShortsDetectionService : AccessibilityService() {
             val c = coordinator ?: return
             guarded {
                 val result = c.respond(outcome) ?: return@guarded
+                onFinished(result)
                 Log.i(TAG, "개입 반응: Lv.${result.level} $outcome → Lv.${result.nextLevel}")
                 val again = result.reinterveneAfterWatchMs ?: return@guarded
                 engine.sessionProgress()?.takeIf { it.sessionNumber == result.sessionNumber }?.let {
@@ -587,11 +674,15 @@ class ShortsDetectionService : AccessibilityService() {
         }
 
         override fun onBreathingStarted() {
-            engine.setWatchHold(true)
+            breathing = true
+            syncWatchHold()
             pausePlayback()
         }
 
-        override fun onBreathingFinished() = engine.setWatchHold(pauser.pausedByApp)
+        override fun onBreathingFinished() {
+            breathing = false
+            syncWatchHold()
+        }
 
         override fun beforeLeaving(proceed: () -> Unit) = pausePlayback(proceed)
 

@@ -11,11 +11,17 @@ class NotificationGate(minIntervalMs: Long) {
     /** 정책이 바뀌면 다음 판정부터 적용한다. */
     var minIntervalMs: Long = minIntervalMs
 
+    /** 쿨다운보다 길게 기다려야 할 때의 하한(최대 단계 반복). 0 이면 쿨다운만 따른다. */
+    var floorMs: Long = 0L
+
+    /** 실제로 적용하는 간격 */
+    val intervalMs: Long get() = maxOf(minIntervalMs, floorMs)
+
     private var lastNotifiedAt: Long? = null
 
     fun canNotify(nowMs: Long): Boolean {
         val last = lastNotifiedAt ?: return true
-        return nowMs - last >= minIntervalMs
+        return nowMs - last >= intervalMs
     }
 
     fun markNotified(nowMs: Long) {

@@ -52,18 +52,25 @@ class InterventionRepeatTest {
             t += 1_000
             val out = e.onSnapshot(t, Fixtures.youtubeShorts())
             out.notifySession?.let { n ->
-                val level = InterventionPolicyPreferences.resolve(prefs, emptyList()).policy.level
+                val resolved = InterventionPolicyPreferences.resolve(prefs, emptyList())
+                val level = resolved.policy.level
                 shown += out.notifyWatchMs!! to level
                 val id = "i${++ids}"
                 store.insertIntervention(InterventionRecord(id, null, t, InterventionMethod.POPUP, 0, 0, level = level))
                 coordinator.begin(id, n, level)
                 e.onNotificationPosted(t)
+                // 서비스와 같다: 최대 단계를 띄우면 다음 개입까지 최소 간격
+                e.setRepeatFloor(MaxLevelRepeatRule.gapAfterShowing(level, resolved))
                 e.setInterventionOpen(true, t)
                 open = t to level
+                wallShownAt += t
             }
             open?.let { (shownAt, level) ->
                 if (t - shownAt >= answerAfterMs) {
                     val r = coordinator.respond(answer(level))
+                    if (r != null && !MaxLevelRepeatRule.keepsGap(r.nextLevel, InterventionPolicyPreferences.resolve(prefs, emptyList()))) {
+                        e.setRepeatFloor(0)
+                    }
                     r?.reinterveneAfterWatchMs?.let { after ->
                         e.sessionProgress()?.let { p -> e.delayIntervention(p.sessionNumber, p.estimatedWatchMs + after) }
                     }
@@ -76,6 +83,11 @@ class InterventionRepeatTest {
     }
 
     private fun levels(shown: List<Pair<Long, Int>>) = shown.map { it.second }
+
+    /** [watch] 에서 개입이 뜬 벽시계 시각 */
+    private val wallShownAt = ArrayList<Long>()
+
+    private fun gaps(values: List<Long>) = values.zipWithNext { a, b -> b - a }
 
     @Test
     fun `one session climbs level 1, 2, 3 and then keeps repeating level 3 outside demo mode`() {
@@ -100,38 +112,97 @@ class InterventionRepeatTest {
     }
 
     @Test
-    fun `stopping at level 3 and watching on still repeats every cooldown`() {
+    fun `stopping at level 3 and watching on still repeats, at least 2 minutes apart`() {
         InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 3, deescalateAfterStops = 10))
-        val shown = watch(engine(30_000, 30_000), 300) { InterventionOutcome.STOPPED }
+        val shown = watch(engine(30_000, 30_000), 1_100) { InterventionOutcome.STOPPED }
 
         assertEquals(List(shown.size) { 3 }, levels(shown))
-        assertTrue(shown.size >= 9)
-        assertTrue(shown.zipWithNext { a, b -> b.first - a.first }.all { it in 30_000L..32_000L })
+        assertTrue(shown.size >= 8)
+        assertTrue(gaps(shown.map { it.first }).all { it in MaxLevelRepeatRule.MIN_GAP_MS..(MaxLevelRepeatRule.MIN_GAP_MS + 2_000) })
     }
 
     @Test
-    fun `no answer at the top level repeats at the top level`() {
+    fun `no answer at the top level repeats at the top level, at least 2 minutes apart`() {
         InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 3))
-        val shown = watch(engine(30_000, 30_000), 300) { InterventionOutcome.IGNORED }
+        val shown = watch(engine(30_000, 30_000), 1_200, answerAfterMs = 5_000) { InterventionOutcome.IGNORED }
 
         assertEquals(List(shown.size) { 3 }, levels(shown))
-        assertTrue(shown.size >= 9)
+        assertTrue(shown.size >= 7)
+        assertTrue(gaps(shown.map { it.first }).all { it >= MaxLevelRepeatRule.MIN_GAP_MS })
+        assertTrue(gaps(wallShownAt).all { it >= MaxLevelRepeatRule.MIN_GAP_MS })
     }
 
     @Test
-    fun `max level 2 repeats level 2 at the cooldown`() {
+    fun `max level 2 repeats level 2, at least 2 minutes apart`() {
         InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 2, maxLevel = 2))
-        val shown = watch(engine(30_000, 30_000), 300) { InterventionOutcome.CONTINUED }
+        val shown = watch(engine(30_000, 30_000), 1_200) { InterventionOutcome.CONTINUED }
 
         assertEquals(List(shown.size) { 2 }, levels(shown))
-        assertTrue(shown.size >= 9)
+        assertTrue(shown.size >= 8)
+        assertTrue(gaps(wallShownAt).all { it >= MaxLevelRepeatRule.MIN_GAP_MS })
     }
 
     @Test
     fun `there is no daily ceiling on repeats`() {
-        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 1, maxLevel = 2))
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 1))
         val shown = watch(engine(30_000, 30_000), 3_600) { InterventionOutcome.IGNORED }
         assertTrue(shown.size > 100)
+    }
+
+    // --- 최대 단계 반복 간격 (10-2단계 [1]) ---
+
+    @Test
+    fun `a long cooldown is kept at the top level`() {
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 3, cooldownMs = 300_000))
+        val shown = watch(engine(300_000, 30_000), 1_500, answerAfterMs = 5_000) { InterventionOutcome.IGNORED }
+        assertTrue(shown.size >= 3)
+        assertTrue(gaps(wallShownAt).all { it >= 300_000 })
+    }
+
+    @Test
+    fun `the first arrival at the top level follows the cooldown, the repeat waits 2 minutes`() {
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 2))
+        val shown = watch(engine(30_000, 30_000), 600, answerAfterMs = 5_000) { level ->
+            if (level == 2) InterventionOutcome.CONTINUED else InterventionOutcome.IGNORED
+        }
+        assertEquals(listOf(2, 3, 3), levels(shown).take(3))
+        val wall = gaps(wallShownAt)
+        assertTrue("Lv.2 → Lv.3 은 쿨다운 간격", wall[0] < MaxLevelRepeatRule.MIN_GAP_MS)
+        assertTrue("Lv.3 → Lv.3 은 2분 이상", wall.drop(1).all { it >= MaxLevelRepeatRule.MIN_GAP_MS })
+    }
+
+    @Test
+    fun `dropping below the top level returns to the cooldown`() {
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 3, deescalateAfterStops = 1))
+        val shown = watch(engine(30_000, 30_000), 400, answerAfterMs = 5_000) { level ->
+            if (level == 3) InterventionOutcome.STOPPED else InterventionOutcome.IGNORED
+        }
+        assertEquals(listOf(3, 2), levels(shown).take(2))
+        assertTrue("Lv.3 멈춤 뒤 Lv.2 는 쿨다운 간격", gaps(wallShownAt)[0] < MaxLevelRepeatRule.MIN_GAP_MS)
+    }
+
+    @Test
+    fun `demo mode keeps repeating the top level at its short interval`() {
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 3))
+        InterventionPolicyPreferences.writeDemoMode(prefs, true)
+        prefs.edit().putInt("demo_level", 3).apply()
+        val shown = watch(engine(DemoMode.COOLDOWN_MS, DemoMode.THRESHOLD_MS), 300, answerAfterMs = 2_000) { InterventionOutcome.IGNORED }
+
+        assertEquals(List(shown.size) { 3 }, levels(shown))
+        assertTrue(shown.size >= 10)
+        assertTrue(gaps(wallShownAt).all { it < 20_000 })
+    }
+
+    @Test
+    fun `the 2 minute gap holds across sessions`() {
+        val e = engine(30_000, 10_000)
+        e.frames(0, 12_000)
+        e.setRepeatFloor(MaxLevelRepeatRule.MIN_GAP_MS)
+        (13_000L..30_000L step 1_000L).forEach { e.onRootUnavailable(it) }
+        val next = e.frames(31_000, 200_000)
+        val firstAt = 31_000L + next.indexOfFirst { it.notifySession != null } * 1_000L
+        assertTrue(next.any { it.step.startedSession != null })
+        assertTrue("새 세션의 첫 개입도 2분 뒤", firstAt - 11_000L >= MaxLevelRepeatRule.MIN_GAP_MS)
     }
 
     // --- 간격 ---

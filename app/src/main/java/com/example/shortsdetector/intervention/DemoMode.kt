@@ -25,6 +25,24 @@ object DemoMode {
     )
 }
 
+/**
+ * 최대 단계를 반복할 때의 최소 간격. 쿨다운이 이보다 짧아도 이 간격을 둔다. 시연 모드는 적용하지 않는다(짧은 간격 유지).
+ *
+ * 최대 단계 개입을 띄우면 다음 개입까지 [MIN_GAP_MS] 를 둔다. 다음 개입도 최대 단계일 것이기 때문이다.
+ * 반응으로 단계가 내려가면 다음은 최대 단계가 아니므로 간격을 쿨다운으로 되돌린다.
+ */
+object MaxLevelRepeatRule {
+    const val MIN_GAP_MS = 120_000L
+
+    /** [level] 개입을 띄운 뒤 다음 개입까지 둘 최소 간격. 해당 없으면 0. */
+    fun gapAfterShowing(level: Int, resolved: ResolvedPolicy): Long =
+        if (!resolved.demoMode && level >= resolved.policy.maxLevel) MIN_GAP_MS else 0L
+
+    /** 반응 뒤 다음 단계가 [nextLevel] 일 때 간격을 유지하는가. 최대 단계 아래로 내려가면 false. */
+    fun keepsGap(nextLevel: Int, resolved: ResolvedPolicy): Boolean =
+        !resolved.demoMode && nextLevel >= resolved.policy.maxLevel
+}
+
 /** 계속 보기를 고른 뒤 같은 세션에서 다시 개입할 시점. */
 object ReinterventionRule {
 

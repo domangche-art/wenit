@@ -7,10 +7,16 @@ package com.example.shortsdetector.intervention
  *  - 다음 개입: 앞선 개입 뒤 쿨다운만큼 더 보면. 세션이 이어지는 동안 반복한다.
  *  - 시점은 시청시간으로 잰다. 영상이 멈춰 있거나 가려진 동안에는 다가오지 않는다.
  *  - 판정이 쿨다운 등으로 미뤄져도 기회는 사라지지 않는다. [markDecided] 를 부를 때까지 계속 true 를 돌려준다.
+ *  - [floorMs] 가 있으면 앞선 개입(또는 닫힌 때)부터 그만큼 더 봐야 한다(최대 단계 반복). 하한은 그때그때 비교하므로
+ *    0 으로 풀면 바로 쿨다운 간격으로 돌아간다.
  */
 class WatchThresholdPolicy(thresholdMs: Long) {
 
     var thresholdMs: Long = thresholdMs.coerceAtLeast(0L)
+        set(value) { field = value.coerceAtLeast(0L) }
+
+    /** 다음 개입 간격의 하한(시청시간). 0 이면 없음. */
+    var floorMs: Long = 0L
         set(value) { field = value.coerceAtLeast(0L) }
 
     /** 이미 개입한 세션 번호 */
@@ -19,12 +25,15 @@ class WatchThresholdPolicy(thresholdMs: Long) {
     /** [decidedSession] 의 다음 개입 시점(시청시간) */
     private var nextAtWatchMs = 0L
 
+    /** [floorMs] 를 잴 기준(앞선 개입 또는 개입 화면이 닫힌 때의 시청시간) */
+    private var baseWatchMs = 0L
+
     /** 이 세션이 첫 개입을 기다리는 중이면 true */
     fun isFirst(sessionNumber: Int?): Boolean = sessionNumber != null && sessionNumber != decidedSession
 
     fun isDue(sessionNumber: Int?, watchMs: Long): Boolean = when {
         sessionNumber == null -> false
-        sessionNumber == decidedSession -> watchMs >= nextAtWatchMs
+        sessionNumber == decidedSession -> watchMs >= nextAtWatchMs && watchMs >= baseWatchMs + floorMs
         else -> watchMs >= thresholdMs
     }
 
@@ -32,10 +41,16 @@ class WatchThresholdPolicy(thresholdMs: Long) {
     fun markDecided(sessionNumber: Int, watchMs: Long, intervalMs: Long) {
         decidedSession = sessionNumber
         nextAtWatchMs = watchMs + intervalMs
+        baseWatchMs = watchMs
     }
 
     /** 다음 개입을 [atWatchMs] 까지 미룬다. 앞당기지는 않는다. 다른 세션이면 무시한다. */
     fun delayUntil(sessionNumber: Int, atWatchMs: Long) {
         if (sessionNumber == decidedSession) nextAtWatchMs = maxOf(nextAtWatchMs, atWatchMs)
+    }
+
+    /** 개입 화면이 닫혔다. [floorMs] 를 이때부터 다시 잰다. 다른 세션이면 무시한다. */
+    fun rebase(sessionNumber: Int, watchMs: Long) {
+        if (sessionNumber == decidedSession) baseWatchMs = maxOf(baseWatchMs, watchMs)
     }
 }
