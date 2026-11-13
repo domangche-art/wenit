@@ -11,4 +11,5 @@
     <exclude domain="sharedpref" path="saved_time_baseline.xml" />
     <exclude domain="sharedpref" path="agent_state.xml" />
     <exclude domain="sharedpref" path="rewards_state.xml" />
+    <exclude domain="sharedpref" path="allowance.xml" />
 </full-backup-content>

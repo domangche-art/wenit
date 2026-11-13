@@ -219,6 +219,7 @@
     <string name="outcome_continued">계속 봄</string>
     <string name="outcome_ignored">넘김</string>
     <string name="outcome_interrupted">앱이 닫음</string>
+    <string name="outcome_allowance">허용 시간으로 봄</string>
     <string name="outcome_unknown">반응 없음</string>
     <string name="change_source_agent">AI</string>
     <string name="change_source_user">사용자</string>
@@ -304,4 +305,23 @@
     <string name="dev_badge_notification">배지 알림 보내 보기</string>
     <string name="dev_badge_notified">알림을 보냈어요</string>
     <string name="dev_badge_not_notified">알림 권한이 없어 보내지 못했어요</string>
+
+    <!-- 14단계: 재생 안내, 하루 허용 시간 -->
+    <string name="resume_hint">영상을 탭하면 이어서 볼 수 있어요</string>
+    <string name="popup_allowance_minutes">허용 시간으로 보기 (남은 %1$d분)</string>
+    <string name="popup_allowance_seconds">허용 시간으로 보기 (남은 %1$d초)</string>
+    <string name="allowance_used_up_prefix">허용 시간을 다 썼어요. %1$s</string>
+    <string name="allowance_channel_name">허용 시간</string>
+    <string name="allowance_channel_description">허용 시간을 쓰는 동안 남은 시간을 보여 줘요(소리·진동 없음)</string>
+    <string name="allowance_notification_minutes">허용 시간 사용 중 · 남은 %1$d분</string>
+    <string name="allowance_notification_seconds">허용 시간 사용 중 · 남은 %1$d초</string>
+    <string name="settings_allowance">하루 허용 시간</string>
+    <string name="settings_allowance_body">개입 없이 볼 수 있는 시간이에요. 팝업에서 직접 골라 쓰고, 매일 자정에 다시 채워져요. 남은 시간은 다음 날로 넘어가지 않아요.</string>
+    <string name="settings_allowance_off">끔</string>
+    <string name="settings_allowance_minutes">%1$d분</string>
+    <string name="home_allowance_minutes">오늘 허용 시간 남은 %1$d분</string>
+    <string name="home_allowance_seconds">오늘 허용 시간 남은 %1$d초</string>
+    <string name="records_allowance_legend">막대 아래쪽의 다른 색 부분은 허용 시간으로 본 시간이에요</string>
+    <string name="dev_allowance_demo">시연용 허용 시간 30초</string>
+    <string name="dev_allowance_demo_body">시연 모드이고 하루 허용 시간이 켜져 있을 때 30초로 써요. 사용량은 실제 기록과 따로 세요.</string>
 </resources>

@@ -54,6 +54,12 @@ import com.example.shortsdetector.intervention.PlaybackPauser
 import com.example.shortsdetector.intervention.PreferencesPolicyStore
 import com.example.shortsdetector.intervention.ResourceInterventionCopyProvider
 import com.example.shortsdetector.data.rewards.Rewards
+import com.example.shortsdetector.data.AllowancePreferences
+import com.example.shortsdetector.data.usage.AllowanceUseRecord
+import com.example.shortsdetector.intervention.allowance.AllowanceNotifier
+import com.example.shortsdetector.intervention.allowance.AllowanceRun
+import com.example.shortsdetector.intervention.allowance.ResumeHintOverlay
+import com.example.shortsdetector.intervention.allowance.ResumeHintRule
 import com.example.shortsdetector.platform.AppForeground
 import com.example.shortsdetector.platform.DetectionStatus
 import com.example.shortsdetector.platform.ScrollEventMapper
@@ -97,6 +103,14 @@ class ShortsDetectionService : AccessibilityService() {
     )
     private val snapshotter = AccessibilitySnapshotter(DetectionConfig.MAX_NODES_VISITED)
     private val popup = InterventionPopup(this, CharacterOverlay(this) { DetectionPreferences.isCharacterEnabled(this) })
+
+    /** 팝업이 닫힌 뒤 재생 안내(14단계) */
+    private val resumeHint by lazy { ResumeHintOverlay(this) }
+
+    /** 하루 허용 시간을 쓰는 중이면 그 실행. 메인 스레드에서만 읽고 쓴다. */
+    private var allowanceRun: AllowanceRun? = null
+    private var allowanceLastWatchMs = 0L
+    private var allowanceNoticeText: String? = null
     private val playbackControls by lazy { AudioPlaybackControls(this) }
     private val pauser by lazy {
         PlaybackPauser(playbackControls) { delayMs, action -> pauseHandler.postDelayed(action, delayMs) }
@@ -161,6 +175,7 @@ class ShortsDetectionService : AccessibilityService() {
         DetectionStatus.onConnected()
         NotificationTaps.listener = ::onNotificationTapped
         BadgeNotifier.ensureChannel(this)
+        AllowanceNotifier.ensureChannel(this)
         updateRewards("연결")
         scheduleMidnightRewards()
 
@@ -316,6 +331,8 @@ class ShortsDetectionService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         endSession("onUnbind")
+        finishAllowance(allowanceRun?.let { allowanceLastWatchMs - it.startWatchMs } ?: 0L, exhausted = false)
+        resumeHint.dismiss()
         stopWatchdog()
         closeIntervention()
         releasePlaybackControl()
@@ -327,6 +344,8 @@ class ShortsDetectionService : AccessibilityService() {
 
     override fun onDestroy() {
         handler.removeCallbacks(midnightRewards)
+        finishAllowance(allowanceRun?.let { allowanceLastWatchMs - it.startWatchMs } ?: 0L, exhausted = false)
+        resumeHint.dismiss()
         stopWatchdog()
         closeIntervention()
         releasePlaybackControl()
@@ -391,7 +410,10 @@ class ShortsDetectionService : AccessibilityService() {
 
     /** 앱이 멈춘 영상을 사용자가 다시 재생하면 시청시간을 다시 센다. */
     private fun syncPausedPlayback() {
-        if (pauser.checkResumed()) Log.i(TAG, "재생 다시 시작됨(앱이 멈춘 영상)")
+        if (pauser.checkResumed()) {
+            Log.i(TAG, "재생 다시 시작됨(앱이 멈춘 영상)")
+            resumeHint.dismiss()
+        }
     }
 
     /**
@@ -592,6 +614,7 @@ class ShortsDetectionService : AccessibilityService() {
             )
             updateRewards("세션 종료")
         }
+        if (output.exitSignalStarted || output.cancelNotification) resumeHint.dismiss()
         // 종료 판정(grace)을 기다리지 않고 오버레이만 먼저 닫는다. 알림은 세션이 끝날 때 지운다.
         if (output.exitSignalStarted && popup.isShowing) {
             Log.i(TAG, "[$source] 이탈 신호: 개입 오버레이 닫음")
@@ -633,6 +656,84 @@ class ShortsDetectionService : AccessibilityService() {
         output.notifySession?.let { n ->
             intervene(n, output.observation.packageName, output.notifyWatchMs ?: 0L, output.observation.atMs, source)
         }
+        tickAllowance(output.observation.atMs)
+    }
+
+    // --- 하루 허용 시간(14단계) ---
+
+    /** 팝업에서 허용 시간을 골랐다. 지금 세션의 시청시간부터 센다. 그동안 엔진은 개입을 판정하지 않는다. */
+    private fun startAllowance(level: Int) {
+        val p = engine.sessionProgress() ?: return
+        val demo = InterventionPolicyPreferences.isDemoMode(this)
+        val today = LocalDate.now(ZoneId.systemDefault())
+        val left = AllowancePreferences.remainingMs(this, demo, today)
+        if (left <= 0L) return
+        allowanceRun = AllowanceRun(p.sessionNumber, level, p.estimatedWatchMs, left, SystemUsageClock.epochNowMs(), today, demo)
+        allowanceLastWatchMs = p.estimatedWatchMs
+        allowanceNoticeText = null
+        engine.setAllowanceActive(true)
+        showAllowanceNotice(left)
+        Log.i(TAG, "허용 시간 시작: 세션 #${p.sessionNumber} 남은 ${left}ms Lv.$level 시연=$demo")
+    }
+
+    /** 시청시간이 늘어난 만큼 쓴다. 다 쓰면 시작 때 단계로 바로 개입하고, 쇼츠를 떠나면 멈춘다. */
+    private fun tickAllowance(atMs: Long) {
+        val run = allowanceRun ?: return
+        val p = engine.sessionProgress()
+        when (val t = run.tick(p?.sessionNumber, p?.estimatedWatchMs ?: allowanceLastWatchMs, allowanceLastWatchMs)) {
+            is AllowanceRun.Tick.Using -> {
+                allowanceLastWatchMs = p?.estimatedWatchMs ?: allowanceLastWatchMs
+                showAllowanceNotice(t.leftMs)
+            }
+            is AllowanceRun.Tick.Exhausted -> {
+                finishAllowance(t.usedMs, exhausted = true)
+                Log.i(TAG, "허용 시간 다 씀: 바로 Lv.${run.level} 개입")
+                intervene(run.sessionNumber, engine.sessionPackage, p?.estimatedWatchMs ?: 0L, atMs, "허용 시간", run.level, allowanceUsedUp = true)
+            }
+            is AllowanceRun.Tick.Left -> {
+                finishAllowance(t.usedMs, exhausted = false)
+                Log.i(TAG, "허용 시간 멈춤: 쇼츠를 떠남(쓴 ${t.usedMs}ms, 남은 시간은 그대로)")
+            }
+        }
+    }
+
+    private fun showAllowanceNotice(leftMs: Long) {
+        val text = AllowanceNotifier.text(this, leftMs)
+        if (text == allowanceNoticeText) return
+        allowanceNoticeText = text
+        AllowanceNotifier.show(this, leftMs)
+    }
+
+    /** 사용을 끝내고 쓴 양을 그날 몫에 더한 뒤 기록한다. 쓰는 중이 아니면 아무 일도 없다. */
+    private fun finishAllowance(usedMs: Long, exhausted: Boolean) {
+        val run = allowanceRun ?: return
+        allowanceRun = null
+        allowanceNoticeText = null
+        engine.setAllowanceActive(false)
+        AllowanceNotifier.cancel(this)
+        val used = usedMs.coerceIn(0L, run.budgetLeftMs)
+        try {
+            AllowancePreferences.charge(this, run.demo, run.day, used)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "허용 시간 저장 실패: ${e.javaClass.simpleName}")
+        }
+        usageStore?.insertAllowanceUse(
+            AllowanceUseRecord(
+                id = java.util.UUID.randomUUID().toString(), startedAtMs = run.startedAtMs, endedAtMs = SystemUsageClock.epochNowMs(),
+                usedMs = used, budgetMs = run.budgetLeftMs, exhausted = exhausted, level = run.level, isDemo = run.demo
+            )
+        )
+    }
+
+    /** 팝업이 닫힌 뒤, 앱이 멈춘 영상이 그대로 멈춰 있으면 재생 안내를 띄운다. 일시정지가 끝나기를 잠깐 기다린다. */
+    private fun scheduleResumeHint(outcome: InterventionOutcome) {
+        handler.postDelayed({
+            val show = ResumeHintRule.shouldShow(
+                outcome, viaPopup = true, pausedByApp = pauser.pausedByApp, sessionOpen = engine.sessionPackage != null,
+                playing = try { playbackControls.isPlaying() } catch (e: RuntimeException) { false }
+            )
+            if (show && !popup.isShowing) resumeHint.show()
+        }, RESUME_HINT_DELAY_MS)
     }
 
     /**
@@ -657,18 +758,33 @@ class ShortsDetectionService : AccessibilityService() {
         }
     }
 
-    /** 현재 단계의 팝업을 우선 띄우고, 꺼져 있거나 실패하면 알림으로 대신한다. 둘 다 실패하면 쿨다운을 걸지 않는다. */
-    private fun intervene(session: Int, pkg: String?, watchMs: Long, atMs: Long, source: String) {
+    /**
+     * 현재 단계의 팝업을 우선 띄우고, 꺼져 있거나 실패하면 알림으로 대신한다. 둘 다 실패하면 쿨다운을 걸지 않는다.
+     * @param levelOverride 허용 시간을 다 썼을 때: 허용 시간을 고를 때의 단계
+     * @param allowanceUsedUp 허용 시간을 다 써서 띄운다. 문구 맨 앞에 "허용 시간을 다 썼어요"를 붙인다
+     */
+    private fun intervene(
+        session: Int,
+        pkg: String?,
+        watchMs: Long,
+        atMs: Long,
+        source: String,
+        levelOverride: Int? = null,
+        allowanceUsedUp: Boolean = false
+    ) {
+        resumeHint.dismiss()
         if (refreshUnansweredNotification(session, pkg, watchMs, atMs, source)) return
         // 알림으로 개입 중이면 답 없는 앞선 개입이 남아 있다. 먼저 끝내야 단계가 그 결과를 반영한다.
         coordinator?.let { c -> guarded { onFinished(c.abandon()) } }
         val interventionId = recorder?.newInterventionId()
         val resolved = InterventionPolicyPreferences.resolve(this)
-        val level = resolved.policy.level
-        val copy = copyProvider.copyFor(
+        val level = levelOverride ?: resolved.policy.level
+        val base = copyProvider.copyFor(
             InterventionCopyInput(level, watchMs, GoalRemaining.minutes(goals, todayWatchBeforeSessionMs, watchMs))
         )
-        val popupShown = DetectionPreferences.isPopupEnabled(this) && popup.show(level, copy, watchMs, popupListener)
+        val copy = if (allowanceUsedUp) base.copy(title = getString(R.string.allowance_used_up_prefix, base.title)) else base
+        val allowanceLeft = if (allowanceUsedUp) 0L else AllowancePreferences.remainingMs(this, resolved.demoMode, LocalDate.now(ZoneId.systemDefault()))
+        val popupShown = DetectionPreferences.isPopupEnabled(this) && popup.show(level, copy, watchMs, popupListener, allowanceLeft)
         val notified = !popupShown &&
             ShortsNotifier.notifyWatchThreshold(this, session, pkg, watchMs, interventionId)
         val shown = popupShown || notified
@@ -731,6 +847,8 @@ class ShortsDetectionService : AccessibilityService() {
                 val result = c.respond(outcome) ?: return@guarded
                 onFinished(result)
                 Log.i(TAG, "개입 반응: Lv.${result.level} $outcome → Lv.${result.nextLevel}")
+                if (outcome == InterventionOutcome.ALLOWANCE) startAllowance(result.level)
+                if (outcome != InterventionOutcome.STOPPED) scheduleResumeHint(outcome)
                 val again = result.reinterveneAfterWatchMs ?: return@guarded
                 engine.sessionProgress()?.takeIf { it.sessionNumber == result.sessionNumber }?.let {
                     engine.delayIntervention(it.sessionNumber, it.estimatedWatchMs + again)
@@ -751,7 +869,10 @@ class ShortsDetectionService : AccessibilityService() {
 
         override fun beforeLeaving(proceed: () -> Unit) = pausePlayback(proceed)
 
-        override fun onTimedOut() = closeIntervention()
+        override fun onTimedOut() {
+            closeIntervention()
+            scheduleResumeHint(InterventionOutcome.IGNORED)
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -773,6 +894,9 @@ class ShortsDetectionService : AccessibilityService() {
         const val TAG = "ShortsDetector"
 
         private const val MIN_REWARD_DELAY_MS = 60_000L
+
+        /** 팝업이 닫힌 뒤 일시정지 확인을 기다리는 시간(재생 안내) */
+        private const val RESUME_HINT_DELAY_MS = 300L
 
         /** "그만 볼게"로 앱이 열리는 중일 수 있어, 화면이 보이는지 조금 기다린 뒤 알림 여부를 정한다. */
         private const val BADGE_NOTIFY_DELAY_MS = 1_500L

@@ -457,7 +457,8 @@ object UsageStatsCalculator {
     private fun levelStopRates(delivered: List<InterventionRecord>): List<LevelStopRate> =
         (InterventionPolicyBounds.MIN_LEVEL..InterventionPolicyBounds.MAX_LEVEL).map { level ->
             val atLevel = delivered.filter { it.level == level }
-            val answered = atLevel.count { it.outcome != null && it.outcome != InterventionOutcome.INTERRUPTED }
+            // 앱이 닫은 것(INTERRUPTED)과 허용 시간 선택(ALLOWANCE)은 멈춤 비율에 넣지 않는다
+            val answered = atLevel.count { it.outcome in REACTED }
             val stopped = atLevel.count { it.outcome == InterventionOutcome.STOPPED }
             LevelStopRate(
                 level, atLevel.size, answered, stopped,

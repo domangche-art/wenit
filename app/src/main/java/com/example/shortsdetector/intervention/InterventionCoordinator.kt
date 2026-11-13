@@ -108,7 +108,8 @@ class InterventionCoordinator(
         store.setInterventionOutcome(p.id, outcome, p.reason)
         when (outcome) {
             InterventionOutcome.STOPPED -> store.setInterventionAction(p.id, InterventionAction.OPEN_APP, clock.epochNowMs())
-            InterventionOutcome.CONTINUED -> store.setInterventionAction(p.id, InterventionAction.DISMISS, clock.epochNowMs())
+            InterventionOutcome.CONTINUED, InterventionOutcome.ALLOWANCE ->
+                store.setInterventionAction(p.id, InterventionAction.DISMISS, clock.epochNowMs())
             InterventionOutcome.IGNORED, InterventionOutcome.INTERRUPTED -> Unit
         }
 

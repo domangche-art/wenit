@@ -32,8 +32,30 @@ object DemoSeedData {
         val sessions: List<SessionRecord>,
         val interventions: List<InterventionRecord>,
         val dayResults: List<DayResult> = emptyList(),
-        val badges: List<EarnedBadge> = emptyList()
+        val badges: List<EarnedBadge> = emptyList(),
+        /** 예시 허용 시간 사용 기록(14단계). A 는 매일 다 쓰고, B 는 거의 쓰지 않는다. */
+        val allowanceUses: List<AllowanceUseRecord> = emptyList()
     )
+
+    /** 예시 허용 시간: 하루 10분 기준으로 만든 기록. 사용자의 허용 시간 설정은 바꾸지 않는다. */
+    private const val SEED_ALLOWANCE_MS = 10 * 60_000L
+
+    /** (며칠 전, 시작 시, 쓴 분, 다 씀) */
+    private fun allowancePlan(scenario: Scenario): List<Triple<Long, Int, Long>> = when (scenario) {
+        Scenario.LATE_NIGHT_SKIPPER -> (1L..7L).map { Triple(it, 23, 10L) }
+        Scenario.EASY_STOPPER -> listOf(Triple(6L, 19, 2L), Triple(2L, 20, 3L))
+    }
+
+    private fun seedAllowance(scenario: Scenario, today: LocalDate, zone: ZoneId, nowMs: Long): List<AllowanceUseRecord> =
+        allowancePlan(scenario).mapIndexedNotNull { i, (ago, hour, minutes) ->
+            val start = today.minusDays(ago).atTime(hour, 20).atZone(zone).toInstant().toEpochMilli()
+            val used = minutes * MS_PER_MINUTE
+            if (start + used >= nowMs) return@mapIndexedNotNull null
+            AllowanceUseRecord(
+                id = "seed-allowance-${scenario.name}-$i", startedAtMs = start, endedAtMs = start + used, usedMs = used,
+                budgetMs = SEED_ALLOWANCE_MS, exhausted = used >= SEED_ALLOWANCE_MS, level = 1, isSeed = true
+            )
+        }
 
     /** 예시 연속 기록을 만들 때 쓰는 목표. 사용자의 실제 목표는 바꾸지 않는다. */
     fun seedGoals(scenario: Scenario): List<Goal> = when (scenario) {
@@ -171,7 +193,10 @@ object DemoSeedData {
             }
         }
         val days = seedDays(scenario, sessions, interventions, today, zone, nowMs)
-        return Batch(sessions, interventions, days, withShowcaseTiers(scenario, seedBadges(days, zone), today, zone))
+        return Batch(
+            sessions, interventions, days, withShowcaseTiers(scenario, seedBadges(days, zone), today, zone),
+            seedAllowance(scenario, today, zone, nowMs)
+        )
     }
 
     /**

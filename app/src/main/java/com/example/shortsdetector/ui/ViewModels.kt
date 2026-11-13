@@ -258,7 +258,9 @@ data class HomeState(
     val savedTime: SavedTime? = null,
     /** 개입 팝업에서 멈추고 넘어왔을 때의 시청시간. 닫기, 날짜 변경, 새 세션 시작 때 사라진다. */
     val stoppedAtMs: Long? = null,
-    val streak: StreakSummary = StreakSummary(0, 0)
+    val streak: StreakSummary = StreakSummary(0, 0),
+    /** 오늘 남은 허용 시간. 허용 시간이 꺼져 있으면 null(표시 안 함) */
+    val allowanceLeftMs: Long? = null
 )
 
 class HomeViewModel(private val repo: AppRepository, private val tasks: TaskRunner) :
@@ -332,7 +334,8 @@ class HomeViewModel(private val repo: AppRepository, private val tasks: TaskRunn
             savedTime = if (!hasRecords) null else SavedTimeCalculator.estimate(
                 repo.firstWeekAverageMs(), repo.profile()?.usualDailyWatch, today.estimatedWatchMs
             ),
-            streak = StreakSummary(streak.current, streak.best)
+            streak = StreakSummary(streak.current, streak.best),
+            allowanceLeftMs = repo.allowanceRemainingMs()
         )
     }
 
@@ -355,7 +358,9 @@ data class RecordsState(
     val week: WeekStats? = null,
     val changes: List<PolicyChangeRow> = emptyList(),
     val interventions: List<InterventionRecord> = emptyList(),
-    val reverted: Boolean = false
+    val reverted: Boolean = false,
+    /** 이번 주 월~일 하루별 허용 시간으로 본 시간(14단계). 그래프에서 구분해 보여 준다 */
+    val allowanceDays: List<Long> = emptyList()
 ) {
     val isEmpty: Boolean
         get() = !loading && changes.isEmpty() && interventions.isEmpty() && week?.totalWatchMs == 0L
@@ -384,9 +389,15 @@ class RecordsViewModel(private val repo: AppRepository, private val tasks: TaskR
         val demo = repo.isDemoMode()
         val changes = repo.policyChanges(CHANGE_LIMIT).filterNot { it.isDemo }
         val latestAgent = changes.firstOrNull { it.source == PolicyChangeSource.AGENT }
+        val week = UsageStatsCalculator.week(sessions, interventions, zone, now, includeDemo = demo)
+        val monday = UsageStatsCalculator.weekStart(DailyUsageCalculator.dateOf(now, zone))
+        val uses = repo.allowanceUses(window.fromMs, window.toMs).filter { demo || !it.isDemo }
         return RecordsState(
             loading = false,
-            week = UsageStatsCalculator.week(sessions, interventions, zone, now, includeDemo = demo),
+            allowanceDays = (0L..6L).map { d ->
+                uses.filter { DailyUsageCalculator.dateOf(it.startedAtMs, zone) == monday.plusDays(d) }.sumOf { it.usedMs }
+            },
+            week = week,
             changes = changes.map {
                 PolicyChangeRow(it, it === latestAgent && it.status == PolicyChangeStatus.APPLIED && it.previousPolicy != null)
             },
@@ -411,6 +422,7 @@ enum class AnalysisNotice { POLICY_KEPT, NOT_ENOUGH_DATA }
 data class SettingsState(
     val goals: List<Goal> = emptyList(),
     val maxLevel: Int = 3,
+    val allowanceMinutes: Int = 0,
     val aiConsent: Boolean = false,
     val agentEnabled: Boolean = true,
     val youtube: Boolean = true,
@@ -436,7 +448,8 @@ class SettingsViewModel(
     fun refresh() {
         set {
             it.copy(
-                goals = repo.goals(), maxLevel = repo.savedPolicy().maxLevel, aiConsent = repo.isAiConsentGiven(),
+                goals = repo.goals(), maxLevel = repo.savedPolicy().maxLevel, allowanceMinutes = repo.allowanceMinutes(),
+                aiConsent = repo.isAiConsentGiven(),
                 agentEnabled = repo.isAgentEnabled(), youtube = repo.isYouTubeEnabled(), instagram = repo.isInstagramEnabled(),
                 demoMode = repo.isDemoMode(), permissions = repo.permissions(), lastResult = repo.lastAgentResult(),
                 messages = repo.agentMessages()
@@ -456,6 +469,11 @@ class SettingsViewModel(
 
     fun setMaxLevel(level: Int) {
         repo.setMaxLevel(level)
+        refresh()
+    }
+
+    fun setAllowanceMinutes(minutes: Int) {
+        repo.setAllowanceMinutes(minutes)
         refresh()
     }
 
@@ -527,6 +545,7 @@ data class DeveloperState(
     val demoThresholdMs: Long = 0,
     val popupEnabled: Boolean = true,
     val characterEnabled: Boolean = true,
+    val allowanceDemo30s: Boolean = false,
     val working: Boolean = false,
     val seeded: Int? = null,
     val evalRows: Int? = null,
@@ -541,8 +560,14 @@ class DeveloperViewModel(private val repo: AppRepository, private val tasks: Tas
     fun refresh() = set {
         it.copy(
             thresholdMs = repo.savedPolicy().thresholdMs, demoThresholdMs = repo.demoThresholdMs(),
-            popupEnabled = repo.isPopupEnabled(), characterEnabled = repo.isCharacterEnabled()
+            popupEnabled = repo.isPopupEnabled(), characterEnabled = repo.isCharacterEnabled(),
+            allowanceDemo30s = repo.isAllowanceDemo30s()
         )
+    }
+
+    fun setAllowanceDemo30s(on: Boolean) {
+        repo.setAllowanceDemo30s(on)
+        refresh()
     }
 
     fun setCharacter(enabled: Boolean) {

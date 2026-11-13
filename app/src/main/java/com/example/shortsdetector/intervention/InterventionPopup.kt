@@ -107,14 +107,19 @@ class InterventionPopup(
     private var view: View? = null
     private var timeline: BreathingTimeline? = null
 
+    /** 이번 개입에서 허용 시간 버튼을 보여 줄지(남은 시간). 0 이면 숨긴다. */
+    private var allowanceLeftMs = 0L
+
     val isShowing: Boolean get() = view != null
 
     /**
      * @param watchMs 이 개입 시점의 시청시간. 멈춘 뒤 홈 화면에 보여 준다.
+     * @param allowanceLeftMs 오늘 남은 허용 시간(14단계). 0 보다 크면 "허용 시간으로 보기 (남은 N분)" 버튼을 기존 버튼 아래에 둔다.
      * @return 실제로 창을 붙였으면 true
      */
-    fun show(level: Int, copy: InterventionCopy, watchMs: Long, listener: Listener): Boolean {
+    fun show(level: Int, copy: InterventionCopy, watchMs: Long, listener: Listener, allowanceLeftMs: Long = 0L): Boolean {
         dismiss()
+        this.allowanceLeftMs = allowanceLeftMs
         val wm = service.getSystemService(WindowManager::class.java) ?: return false
         return try {
             val spec = InterventionLevels.of(level)
@@ -175,6 +180,18 @@ class InterventionPopup(
     private fun bindButtons(v: View, host: Host) {
         v.findViewById<View?>(R.id.popupContinue)?.setOnClickListener { host.answer(InterventionOutcome.CONTINUED) }
         v.findViewById<View?>(R.id.popupStop)?.setOnClickListener { host.answer(InterventionOutcome.STOPPED) }
+        v.findViewById<TextView?>(R.id.popupAllowance)?.let { b ->
+            b.text = allowanceText(allowanceLeftMs)
+            b.setOnClickListener { host.answer(InterventionOutcome.ALLOWANCE) }
+            // 숨 고르기는 카운트다운이 끝나 버튼이 나올 때 함께 보인다
+            val immediate = v.findViewById<View?>(R.id.popupButtons) == null
+            b.visibility = if (allowanceLeftMs > 0L && immediate) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun allowanceText(leftMs: Long): String {
+        val left = com.example.shortsdetector.intervention.allowance.AllowanceFormat.left(leftMs)
+        return service.getString(if (left.minutes) R.string.popup_allowance_minutes else R.string.popup_allowance_seconds, left.value)
     }
 
     /** 이유를 하나 고르면 답 버튼이 켜진다. 팝업 바깥은 막지 않으므로 고르지 않아도 영상을 볼 수 있다. */
@@ -185,7 +202,10 @@ class InterventionPopup(
             R.id.reasonTired to InterventionUserReason.TIRED,
             R.id.reasonProcrastinating to InterventionUserReason.PROCRASTINATING
         ).map { (id, reason) -> v.findViewById<View>(id) to reason }
-        val buttons = listOf(v.findViewById<View>(R.id.popupContinue), v.findViewById<View>(R.id.popupStop))
+        // 허용 시간 버튼도 다른 답처럼 이유를 고른 뒤에 켠다
+        val buttons = listOfNotNull(
+            v.findViewById<View>(R.id.popupContinue), v.findViewById<View>(R.id.popupStop), v.findViewById<View?>(R.id.popupAllowance)
+        )
         buttons.forEach { it.isEnabled = false; it.alpha = DISABLED_ALPHA }
         for ((option, reason) in options) {
             option.setOnClickListener {
@@ -205,6 +225,7 @@ class InterventionPopup(
             onButtons = {
                 count.visibility = View.GONE
                 buttons.visibility = View.VISIBLE
+                if (allowanceLeftMs > 0L) v.findViewById<View?>(R.id.popupAllowance)?.visibility = View.VISIBLE
                 listener.onBreathingFinished()
             },
             onTimedOut = listener::onTimedOut

@@ -26,6 +26,8 @@ import com.example.shortsdetector.ai.agent.PolicyAgent
 import com.example.shortsdetector.ai.agent.PreferencesAgentStore
 import com.example.shortsdetector.data.DetectionPreferences
 import com.example.shortsdetector.data.InterventionPolicyPreferences
+import com.example.shortsdetector.data.AllowancePreferences
+import com.example.shortsdetector.data.usage.AllowanceUseRecord
 import com.example.shortsdetector.data.goal.Goal
 import com.example.shortsdetector.data.goal.GoalPreferences
 import com.example.shortsdetector.data.goal.GoalType
@@ -135,6 +137,15 @@ interface AppRepository {
     fun trackingStart(): LocalDate
     /** 디버그 전용: 배지 알림 모양 확인 */
     fun testBadgeNotification(): Boolean
+
+    // --- 하루 허용 시간(14단계). 사용자 설정이며 에이전트는 바꾸지 않는다 ---
+    fun allowanceMinutes(): Int
+    fun setAllowanceMinutes(minutes: Int)
+    fun isAllowanceDemo30s(): Boolean
+    fun setAllowanceDemo30s(on: Boolean)
+    /** 지금 모드(시연이면 시연 칸)의 오늘 남은 시간. 꺼져 있으면 null. */
+    fun allowanceRemainingMs(): Long?
+    fun allowanceUses(fromMs: Long, toMs: Long): List<AllowanceUseRecord>
 }
 
 /** 화면 작업을 메인 스레드 밖에서 돌리고 결과를 메인 스레드로 넘긴다. 테스트는 바로 실행하는 구현을 쓴다. */
@@ -229,7 +240,9 @@ class AndroidAppRepository(context: Context) : AppRepository {
             db.interventionsBetween(window.fromMs, window.toMs),
             db.recentPolicyChanges(RECENT_CHANGES),
             zone(), nowMs(),
-            dayResults = db.dayResults()
+            dayResults = db.dayResults(),
+            allowanceMinutes = AllowancePreferences.minutes(app),
+            allowanceUses = db.allowanceUses(window.fromMs, window.toMs)
         )
     }
 
@@ -298,6 +311,7 @@ class AndroidAppRepository(context: Context) : AppRepository {
         db.deleteAll()
         SavedTimeBaselinePreferences.clear(app)
         RewardPreferences.clear(app)
+        AllowancePreferences.clearUsage(app)
     }
 
     /** 정책 전체를 시연 시작값으로 되돌린다. 기록을 지운 뒤에 남기는 DEFAULT 한 건이 첫 변경 이력이 된다. */
@@ -305,6 +319,7 @@ class AndroidAppRepository(context: Context) : AppRepository {
         db.deleteAll()
         SavedTimeBaselinePreferences.clear(app)
         RewardPreferences.clear(app)
+        AllowancePreferences.clearUsage(app)
         AgentPreferences.clearRunState(app)
         val before = InterventionPolicyPreferences.resetForDemo(app)
         db.insertPolicyChange(
@@ -329,6 +344,7 @@ class AndroidAppRepository(context: Context) : AppRepository {
         batch.interventions.forEach(db::insertIntervention)
         batch.dayResults.forEach(db::upsertDayResult)
         batch.badges.forEach(db::insertBadge)
+        batch.allowanceUses.forEach(db::insertAllowanceUse)
         return batch.interventions.size
     }
 
@@ -376,6 +392,22 @@ class AndroidAppRepository(context: Context) : AppRepository {
 
     override fun trackingStart(): LocalDate =
         RewardPreferences.trackingStart(app, LocalDate.now(zone()), db.dayResults().filterNot { it.isSeed }.minOfOrNull { it.date })
+
+    override fun allowanceMinutes() = AllowancePreferences.minutes(app)
+
+    override fun setAllowanceMinutes(minutes: Int) = AllowancePreferences.setMinutes(app, minutes)
+
+    override fun isAllowanceDemo30s() = AllowancePreferences.isDemo30s(app)
+
+    override fun setAllowanceDemo30s(on: Boolean) = AllowancePreferences.setDemo30s(app, on)
+
+    override fun allowanceRemainingMs(): Long? {
+        val demo = isDemoMode()
+        if (AllowancePreferences.budgetMs(app, demo) <= 0L) return null
+        return AllowancePreferences.remainingMs(app, demo, LocalDate.now(zone()))
+    }
+
+    override fun allowanceUses(fromMs: Long, toMs: Long) = db.allowanceUses(fromMs, toMs)
 
     override fun testBadgeNotification() =
         BadgeNotifier.notify(app, listOf(EarnedBadge(BadgeCatalog.ALL.first().id, 0, nowMs())))

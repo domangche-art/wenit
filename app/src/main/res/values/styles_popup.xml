@@ -24,6 +24,22 @@
         <item name="android:textColor">@color/popup_text</item>
     </style>
 
+    <!-- 14단계: 허용 시간 버튼. 기존 버튼보다 눈에 덜 띄게 배경 없이 작은 보조 글자로 버튼 줄 아래에 둔다 -->
+    <style name="PopupButton.Text">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">@dimen/popup_text_button_height</item>
+        <item name="android:layout_weight">0</item>
+        <item name="android:layout_marginTop">@dimen/popup_option_gap</item>
+        <item name="android:background">@android:color/transparent</item>
+        <item name="android:textColor">@color/popup_text_secondary</item>
+        <item name="android:textSize">@dimen/popup_text_button_text</item>
+    </style>
+
+    <!-- 숨 고르기(어두운 화면 덮개) 위 -->
+    <style name="PopupButton.Text.OnScrim">
+        <item name="android:textColor">@color/breathing_text_secondary</item>
+    </style>
+
     <style name="PopupOption">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">@dimen/popup_option_height</item>

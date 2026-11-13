@@ -287,6 +287,7 @@ private const val SECONDS_PER_HOUR = 3_600L
     InterventionOutcome.CONTINUED -> R.string.outcome_continued
     InterventionOutcome.IGNORED -> R.string.outcome_ignored
     InterventionOutcome.INTERRUPTED -> R.string.outcome_interrupted
+    InterventionOutcome.ALLOWANCE -> R.string.outcome_allowance
     null -> R.string.outcome_unknown
 }
 

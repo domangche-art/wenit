@@ -20,10 +20,13 @@ package com.example.shortsdetector.data.usage
  *
  * 버전 8: day_results(끝난 하루 판정)·badges(얻은 배지) 테이블 추가. 기존 테이블은 바꾸지 않는다.
  * 지난 날을 소급해 판정하지 않으므로 새 테이블은 비어서 시작한다.
+ *
+ * 버전 9: allowance_uses(하루 허용 시간 사용 기록) 테이블 추가. 기존 테이블은 바꾸지 않는다. 결과 값 ALLOWANCE 는
+ * interventions.outcome 문자열이라 스키마 변경이 없다.
  */
 object UsageSchema {
 
-    const val VERSION = 8
+    const val VERSION = 9
 
     /** 복귀를 지켜보지 않는 기록의 표시. 버전 7 이전 기록에만 쓴다. */
     const val RETURN_UNKNOWN = "UNKNOWN"
@@ -141,5 +144,22 @@ object UsageSchema {
             PRIMARY KEY (badge_id, tier, is_seed)
         )
         """.trimIndent()
+    )
+
+    val MIGRATE_8_TO_9: List<String> = listOf(
+        """
+        CREATE TABLE allowance_uses (
+            id TEXT PRIMARY KEY NOT NULL,
+            started_at_ms INTEGER NOT NULL,
+            ended_at_ms INTEGER NOT NULL,
+            used_ms INTEGER NOT NULL,
+            budget_ms INTEGER NOT NULL,
+            exhausted INTEGER NOT NULL,
+            level INTEGER NOT NULL,
+            is_demo INTEGER NOT NULL DEFAULT 0,
+            is_seed INTEGER NOT NULL DEFAULT 0
+        )
+        """.trimIndent(),
+        "CREATE INDEX idx_allowance_uses_started ON allowance_uses(started_at_ms)"
     )
 }

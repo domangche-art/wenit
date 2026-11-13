@@ -3,6 +3,7 @@ package com.example.shortsdetector.data.stats
 import com.example.shortsdetector.data.goal.Goal
 import com.example.shortsdetector.data.profile.UserProfile
 import com.example.shortsdetector.data.rewards.DayResult
+import com.example.shortsdetector.data.usage.AllowanceUseRecord
 import com.example.shortsdetector.data.rewards.StreakCalculator
 import java.time.LocalDate
 import com.example.shortsdetector.data.usage.InterventionRecord
@@ -31,8 +32,35 @@ data class AgentInput(
     /** 입력에 발표용 시드가 섞였다. 앱 안에서만 쓰고 외부로 보내지 않는다. */
     val usedSeedData: Boolean = false,
     /** 최근 7일 목표 달성률과 연속 달성(13단계). 끝난 날 판정 행에서 센 집계값이다. */
-    val goalAchievement: GoalAchievementSummary = GoalAchievementSummary.EMPTY
+    val goalAchievement: GoalAchievementSummary = GoalAchievementSummary.EMPTY,
+    /** 하루 허용 시간(14단계) 집계값. 사용 기록 원본은 담지 않는다. */
+    val allowance: AllowanceSummary = AllowanceSummary.EMPTY
 )
+
+/**
+ * @param dailyMinutes 사용자가 정한 하루 허용 시간(0 = 끔). 에이전트가 바꿀 수 없는 값이다
+ * @param averageUsedMs 최근 7일(어제까지) 하루 평균 사용 시간(쓰지 않은 날은 0 으로 평균)
+ * @param usedUpDays 그 7일 중 허용 시간을 다 쓴 날 수
+ */
+data class AllowanceSummary(val dailyMinutes: Int, val averageUsedMs: Long, val usedUpDays: Int) {
+    companion object {
+        val EMPTY = AllowanceSummary(0, 0L, 0)
+        const val DAYS = 7L
+
+        /** 시연 모드 기록은 뺀다. 시드는 다른 집계처럼 실제 기록으로 읽는다. */
+        fun of(dailyMinutes: Int, uses: List<AllowanceUseRecord>, zone: ZoneId, nowMs: Long): AllowanceSummary {
+            val today = com.example.shortsdetector.data.usage.DailyUsageCalculator.dateOf(nowMs, zone)
+            val from = today.minusDays(DAYS)
+            val recent = uses.filterNot { it.isDemo }.filter {
+                val d = com.example.shortsdetector.data.usage.DailyUsageCalculator.dateOf(it.startedAtMs, zone)
+                !d.isBefore(from) && d.isBefore(today)
+            }
+            val usedUp = recent.filter { it.exhausted }
+                .map { com.example.shortsdetector.data.usage.DailyUsageCalculator.dateOf(it.startedAtMs, zone) }.toSet().size
+            return AllowanceSummary(dailyMinutes, recent.sumOf { it.usedMs } / DAYS, usedUp)
+        }
+    }
+}
 
 /**
  * @param judgedDays 최근 7일(어제까지) 중 하루 목표가 있던 날
@@ -77,7 +105,9 @@ object AgentInputBuilder {
         recentPolicyChanges: List<PolicyChangeRecord>,
         zone: ZoneId,
         nowMs: Long,
-        dayResults: List<DayResult> = emptyList()
+        dayResults: List<DayResult> = emptyList(),
+        allowanceMinutes: Int = 0,
+        allowanceUses: List<AllowanceUseRecord> = emptyList()
     ) = AgentInput(
         generatedAtMs = nowMs,
         profile = profile,
@@ -87,7 +117,9 @@ object AgentInputBuilder {
         week = UsageStatsCalculator.week(sessions, interventions, zone, nowMs),
         recent = UsageStatsCalculator.recent(sessions, interventions, zone, nowMs),
         recentPolicyChanges = recentPolicyChanges.filterNot { it.isDemo }.take(RECENT_CHANGES),
-        usedSeedData = sessions.any { it.isSeed } || interventions.any { it.isSeed } || dayResults.any { it.isSeed },
+        usedSeedData = sessions.any { it.isSeed } || interventions.any { it.isSeed } || dayResults.any { it.isSeed } ||
+            allowanceUses.any { it.isSeed },
+        allowance = AllowanceSummary.of(allowanceMinutes, allowanceUses, zone, nowMs),
         goalAchievement = GoalAchievementSummary.of(
             StreakCalculator.mergedForDisplay(dayResults),
             com.example.shortsdetector.data.usage.DailyUsageCalculator.dateOf(nowMs, zone)

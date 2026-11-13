@@ -180,6 +180,17 @@ class ViewModelsTest {
         override fun markBadgeCelebrated(id: String, tier: Int) = rewardStore.markBadgeCelebrated(id, tier)
         override fun trackingStart() = trackingStartDate
         override fun testBadgeNotification() = true
+
+        var allowanceMin = 0
+        var allowanceDemo = false
+        var allowanceLeft: Long? = null
+        val allowanceList = ArrayList<com.example.shortsdetector.data.usage.AllowanceUseRecord>()
+        override fun allowanceMinutes() = allowanceMin
+        override fun setAllowanceMinutes(minutes: Int) { allowanceMin = minutes }
+        override fun isAllowanceDemo30s() = allowanceDemo
+        override fun setAllowanceDemo30s(on: Boolean) { allowanceDemo = on }
+        override fun allowanceRemainingMs() = allowanceLeft
+        override fun allowanceUses(fromMs: Long, toMs: Long) = allowanceList.filter { it.startedAtMs in fromMs until toMs }
     }
 
     private val repo = FakeRepo()
@@ -860,5 +871,36 @@ class ViewModelsTest {
         assertTrue(vm.state.value.isValid)
         vm.save()
         assertEquals(1, repo.goalList.first { it.type == GoalType.NO_MAX_LEVEL }.value)
+    }
+
+    // --- 14단계: 하루 허용 시간 ---
+
+    @Test
+    fun `allowance setting, home remaining time and per day allowance in records`() {
+        val settings = SettingsViewModel(repo, Direct, debugBuild = true)
+        settings.refresh()
+        assertEquals(0, settings.state.value.allowanceMinutes)
+        settings.setAllowanceMinutes(15)
+        assertEquals(15, settings.state.value.allowanceMinutes)
+
+        val home = HomeViewModel(repo, Direct)
+        home.refresh()
+        assertNull(home.state.value.allowanceLeftMs)               // 꺼져 있으면 표시 안 함
+        repo.allowanceLeft = 7 * minute
+        home.refresh()
+        assertEquals(7 * minute, home.state.value.allowanceLeftMs)
+
+        // 목요일(오늘) 3분, 화요일 5분, 시연 기록은 시연 모드가 아니면 뺀다
+        val tuesday = today.minusDays(2)
+        repo.allowanceList += com.example.shortsdetector.data.usage.AllowanceUseRecord("a", at(tuesday, 21), 0, 5 * minute, 10 * minute, false, 1)
+        repo.allowanceList += com.example.shortsdetector.data.usage.AllowanceUseRecord("b", at(today, 10), 0, 3 * minute, 10 * minute, false, 1)
+        repo.allowanceList += com.example.shortsdetector.data.usage.AllowanceUseRecord("d", at(today, 11), 0, 30_000, 30_000, true, 1, isDemo = true)
+        val records = RecordsViewModel(repo, Direct)
+        records.refresh()
+        assertEquals(listOf(0L, 5 * minute, 0L, 3 * minute, 0L, 0L, 0L), records.state.value.allowanceDays)
+
+        val dev = DeveloperViewModel(repo, Direct)
+        dev.setAllowanceDemo30s(true)
+        assertTrue(dev.state.value.allowanceDemo30s)
     }
 }

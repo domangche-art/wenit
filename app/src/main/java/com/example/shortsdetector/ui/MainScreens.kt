@@ -35,6 +35,8 @@ import com.example.shortsdetector.DetectionConfig
 import com.example.shortsdetector.R
 import com.example.shortsdetector.ai.agent.AgentPolicyRules
 import com.example.shortsdetector.data.goal.GoalPeriod
+import com.example.shortsdetector.intervention.allowance.AllowanceBudget
+import com.example.shortsdetector.intervention.allowance.AllowanceFormat
 import com.example.shortsdetector.data.rewards.BadgeTier
 import com.example.shortsdetector.data.rewards.EarnedBadge
 import com.example.shortsdetector.data.stats.DailyWatch
@@ -81,6 +83,10 @@ fun HomeScreen(vm: HomeViewModel, stoppedAtMs: Long?, onStoppedShown: () -> Unit
                 Caption(stringResource(R.string.home_today))
                 Text(durationText(s.watchMs), style = MaterialTheme.typography.headlineMedium)
                 Caption(stringResource(R.string.home_estimate))
+                s.allowanceLeftMs?.let { left ->
+                    val l = AllowanceFormat.left(left)
+                    Caption(stringResource(if (l.minutes) R.string.home_allowance_minutes else R.string.home_allowance_seconds, l.value))
+                }
             }
         }
         if (!s.loading && !s.hasRecords) {
@@ -147,7 +153,7 @@ fun RecordsScreen(vm: RecordsViewModel) {
                 Caption(stringResource(R.string.records_empty_body))
             }
         }
-        s.week?.let { WeekCard(it) }
+        s.week?.let { WeekCard(it, s.allowanceDays) }
         s.week?.let { week ->
             WenitCard {
                 Text(stringResource(R.string.records_stop_rate), style = MaterialTheme.typography.titleMedium)
@@ -185,10 +191,11 @@ fun RecordsScreen(vm: RecordsViewModel) {
 }
 
 @Composable
-private fun WeekCard(week: WeekStats) {
+private fun WeekCard(week: WeekStats, allowanceDays: List<Long>) {
     WenitCard {
         Text(stringResource(R.string.records_week), style = MaterialTheme.typography.titleMedium)
-        WeekBars(week.days)
+        WeekBars(week.days, allowanceDays)
+        if (allowanceDays.any { it > 0L }) Caption(stringResource(R.string.records_allowance_legend))
         Caption(stringResource(R.string.records_average, durationText(week.dailyAverageMs)))
         val ratio = week.changeRatio
         Caption(
@@ -201,10 +208,11 @@ private fun WeekCard(week: WeekStats) {
     }
 }
 
-/** 월~일 일곱 칸. 아직 오지 않은 요일은 비워 둔다. */
+/** 월~일 일곱 칸. 아직 오지 않은 요일은 비워 둔다. 허용 시간으로 본 몫은 막대 아래쪽을 다른 색(tertiary)으로 구분한다(14단계). */
 @Composable
-private fun WeekBars(days: List<DailyWatch>) {
+private fun WeekBars(days: List<DailyWatch>, allowanceDays: List<Long> = emptyList()) {
     val color = MaterialTheme.colorScheme.primary
+    val allowanceColor = MaterialTheme.colorScheme.tertiary
     val track = MaterialTheme.colorScheme.surfaceVariant
     val radius = with(LocalDensity.current) { WenitTokens.ChartBarRadius.toPx() }
     val max = (days.maxOfOrNull { it.watchMs } ?: 0L).coerceAtLeast(1L)
@@ -218,6 +226,11 @@ private fun WeekBars(days: List<DailyWatch>) {
             days.getOrNull(i)?.let { day ->
                 val h = size.height * day.watchMs / max
                 drawRoundRect(color, Offset(x, size.height - h), Size(barWidth, h), CornerRadius(radius))
+                val a = allowanceDays.getOrNull(i)?.coerceAtMost(day.watchMs) ?: 0L
+                if (a > 0L) {
+                    val ah = size.height * a / max
+                    drawRoundRect(allowanceColor, Offset(x, size.height - ah), Size(barWidth, ah), CornerRadius(radius))
+                }
             }
         }
     }
@@ -281,6 +294,15 @@ fun SettingsScreen(vm: SettingsViewModel, onAddGoal: () -> Unit, onRecommend: ()
         InterventionLevels.maxLevelChoices.forEach { level ->
             val label = level.maxLevelLabel ?: return@forEach
             SingleChoiceRow(stringResource(label), s.maxLevel == level.number) { vm.setMaxLevel(level.number) }
+        }
+
+        SectionTitle(stringResource(R.string.settings_allowance))
+        Caption(stringResource(R.string.settings_allowance_body))
+        AllowanceBudget.CHOICES_MINUTES.forEach { m ->
+            SingleChoiceRow(
+                if (m == 0) stringResource(R.string.settings_allowance_off) else stringResource(R.string.settings_allowance_minutes, m),
+                s.allowanceMinutes == m
+            ) { vm.setAllowanceMinutes(m) }
         }
 
         SectionTitle(stringResource(R.string.settings_ai))
@@ -368,6 +390,8 @@ fun DeveloperScreen(
         }
         SwitchRow(stringResource(R.string.switch_popup), s.popupEnabled, onChange = vm::setPopup)
         SwitchRow(stringResource(R.string.switch_character), s.characterEnabled, onChange = vm::setCharacter)
+        SwitchRow(stringResource(R.string.dev_allowance_demo), s.allowanceDemo30s, onChange = vm::setAllowanceDemo30s)
+        Caption(stringResource(R.string.dev_allowance_demo_body))
 
         SectionTitle(stringResource(R.string.dev_demo_threshold))
         DemoMode.THRESHOLD_CHOICES_MS.forEach { ms ->

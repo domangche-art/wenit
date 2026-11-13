@@ -51,6 +51,7 @@ class BackgroundUsageStore(private val delegate: UsageStore) : UsageStore by del
     override fun deleteBefore(cutoffMs: Long): Int { write("prune") { delegate.deleteBefore(cutoffMs) }; return 0 }
     override fun deleteSeedRecords() = write("deleteSeed") { delegate.deleteSeedRecords() }
     override fun deleteAll() = write("deleteAll") { delegate.deleteAll() }
+    override fun insertAllowanceUse(record: AllowanceUseRecord) = write("allowance") { delegate.insertAllowanceUse(record) }
 
     /** 쓰기와 같은 스레드에서 읽는다(앞선 쓰기가 끝난 뒤 실행). [block] 은 결과를 메인 스레드로 넘겨야 한다. */
     fun read(block: (UsageStore) -> Unit) = write("read") { block(delegate) }

@@ -62,6 +62,12 @@ interface UsageStore {
     fun recentPolicyChanges(limit: Int): List<PolicyChangeRecord>
 
     fun sessionCount(): Int
+
+    /** 허용 시간 사용 기록(14단계). 같은 id 가 있으면 무시한다. */
+    fun insertAllowanceUse(record: AllowanceUseRecord)
+
+    /** [fromMs, toMs) 에 시작한 허용 시간 사용 기록. 시작 시각 순. */
+    fun allowanceUses(fromMs: Long, toMs: Long): List<AllowanceUseRecord>
 }
 
 /** JVM 테스트용·폴백용 메모리 저장소. 스레드 안전. */
@@ -69,6 +75,12 @@ class InMemoryUsageStore : UsageStore {
     private val sessions = LinkedHashMap<String, SessionRecord>()
     private val interventions = LinkedHashMap<String, InterventionRecord>()
     private val policyChanges = LinkedHashMap<String, PolicyChangeRecord>()
+    private val allowance = LinkedHashMap<String, AllowanceUseRecord>()
+
+    @Synchronized override fun insertAllowanceUse(record: AllowanceUseRecord) { allowance.putIfAbsent(record.id, record) }
+
+    @Synchronized override fun allowanceUses(fromMs: Long, toMs: Long) =
+        allowance.values.filter { it.startedAtMs in fromMs until toMs }.sortedBy { it.startedAtMs }
 
     @Synchronized override fun upsertSession(record: SessionRecord) { sessions[record.id] = record }
 
@@ -116,12 +128,14 @@ class InMemoryUsageStore : UsageStore {
         old.forEach { sessions.remove(it.id) }
         interventions.values.removeAll { it.occurredAtMs < cutoffMs }
         policyChanges.values.removeAll { it.occurredAtMs < cutoffMs }
+        allowance.values.removeAll { it.startedAtMs < cutoffMs }
         return old.size
     }
 
     @Synchronized override fun deleteSeedRecords() {
         sessions.values.removeAll { it.isSeed }
         interventions.values.removeAll { it.isSeed }
+        allowance.values.removeAll { it.isSeed }
     }
 
     @Synchronized override fun interventionsAwaitingReturn() =
@@ -145,7 +159,7 @@ class InMemoryUsageStore : UsageStore {
     @Synchronized override fun hasSeedRecords() =
         sessions.values.any { it.isSeed } || interventions.values.any { it.isSeed }
 
-    @Synchronized override fun deleteAll() { sessions.clear(); interventions.clear(); policyChanges.clear() }
+    @Synchronized override fun deleteAll() { sessions.clear(); interventions.clear(); policyChanges.clear(); allowance.clear() }
 
     @Synchronized override fun sessionsOverlapping(fromMs: Long, toMs: Long): List<SessionRecord> =
         sessions.values.filter { it.startedAtMs < toMs && it.endedAtMs >= fromMs }.sortedBy { it.startedAtMs }

@@ -31,6 +31,7 @@ class UsageDatabase private constructor(context: Context) :
         UsageSchema.MIGRATE_5_TO_6.forEach(db::execSQL)
         UsageSchema.MIGRATE_6_TO_7.forEach(db::execSQL)
         UsageSchema.MIGRATE_7_TO_8.forEach(db::execSQL)
+        UsageSchema.MIGRATE_8_TO_9.forEach(db::execSQL)
     }
 
     /** SQLiteOpenHelper 가 트랜잭션으로 감싸 호출한다. 기존 기록은 지우지 않는다. */
@@ -42,7 +43,47 @@ class UsageDatabase private constructor(context: Context) :
         if (oldVersion < 6) UsageSchema.MIGRATE_5_TO_6.forEach(db::execSQL)
         if (oldVersion < 7) UsageSchema.MIGRATE_6_TO_7.forEach(db::execSQL)
         if (oldVersion < 8) UsageSchema.MIGRATE_7_TO_8.forEach(db::execSQL)
+        if (oldVersion < 9) UsageSchema.MIGRATE_8_TO_9.forEach(db::execSQL)
     }
+
+    override fun insertAllowanceUse(record: AllowanceUseRecord) {
+        val v = ContentValues().apply {
+            put("id", record.id)
+            put("started_at_ms", record.startedAtMs)
+            put("ended_at_ms", record.endedAtMs)
+            put("used_ms", record.usedMs)
+            put("budget_ms", record.budgetMs)
+            put("exhausted", if (record.exhausted) 1 else 0)
+            put("level", record.level)
+            put("is_demo", if (record.isDemo) 1 else 0)
+            put("is_seed", if (record.isSeed) 1 else 0)
+        }
+        writableDatabase.insertWithOnConflict("allowance_uses", null, v, SQLiteDatabase.CONFLICT_IGNORE)
+    }
+
+    override fun allowanceUses(fromMs: Long, toMs: Long): List<AllowanceUseRecord> =
+        readableDatabase.query(
+            "allowance_uses", null, "started_at_ms >= ? AND started_at_ms < ?",
+            arrayOf(fromMs.toString(), toMs.toString()), null, null, "started_at_ms ASC"
+        ).use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(
+                        AllowanceUseRecord(
+                            id = c.str("id")!!,
+                            startedAtMs = c.long("started_at_ms"),
+                            endedAtMs = c.long("ended_at_ms"),
+                            usedMs = c.long("used_ms"),
+                            budgetMs = c.long("budget_ms"),
+                            exhausted = c.long("exhausted") != 0L,
+                            level = c.long("level").toInt(),
+                            isDemo = c.long("is_demo") != 0L,
+                            isSeed = c.long("is_seed") != 0L
+                        )
+                    )
+                }
+            }
+        }
 
     // --- 하루 결과·배지(13단계) ---
 
@@ -260,6 +301,7 @@ class UsageDatabase private constructor(context: Context) :
             db.delete("interventions", "is_seed = 1", null)
             db.delete("day_results", "is_seed = 1", null)
             db.delete("badges", "is_seed = 1", null)
+            db.delete("allowance_uses", "is_seed = 1", null)
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -281,6 +323,7 @@ class UsageDatabase private constructor(context: Context) :
             )
             db.delete("interventions", "occurred_at_ms < ?", arrayOf(cutoffMs.toString()))
             db.delete("policy_changes", "occurred_at_ms < ?", arrayOf(cutoffMs.toString()))
+            db.delete("allowance_uses", "started_at_ms < ?", arrayOf(cutoffMs.toString()))
             db.setTransactionSuccessful()
             return n
         } finally {
@@ -297,6 +340,7 @@ class UsageDatabase private constructor(context: Context) :
             db.delete("policy_changes", null, null)
             db.delete("day_results", null, null)
             db.delete("badges", null, null)
+            db.delete("allowance_uses", null, null)
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()

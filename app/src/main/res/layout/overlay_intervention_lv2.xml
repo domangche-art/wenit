@@ -78,4 +78,9 @@
             android:layout_marginStart="@dimen/popup_option_gap"
             android:text="@string/popup_lv2_stop" />
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/popupAllowance"
+        style="@style/PopupButton.Text"
+        android:visibility="gone" />
 </LinearLayout>

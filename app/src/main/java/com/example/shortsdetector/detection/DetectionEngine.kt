@@ -75,6 +75,13 @@ class DetectionEngine(
     /** 쿨다운으로 미뤘다고 이미 알린 세션 */
     private var suppressedSession: Int? = null
 
+    /** 하루 허용 시간을 쓰는 중(14단계). 그동안은 개입을 판정하지 않는다. 다 쓰면 서비스가 직접 개입을 띄운다. */
+    private var allowanceActive = false
+
+    fun setAllowanceActive(active: Boolean) {
+        allowanceActive = active
+    }
+
     /** 개입 임계값. 설정이 바뀌면 바로 반영한다(열린 세션에도 적용). */
     var watchThresholdMs: Long
         get() = thresholdPolicy.thresholdMs
@@ -259,7 +266,8 @@ class DetectionEngine(
         val step = machine.onObservation(obs)
         val session = machine.sessionNumber
         val watchMs = machine.sessionWatchMs
-        val due = !interventionOpen && (isDue(session, watchMs, step.current) || retryDue(session, watchMs, step.current, obs.atMs))
+        val due = !interventionOpen && !allowanceActive &&
+            (isDue(session, watchMs, step.current) || retryDue(session, watchMs, step.current, obs.atMs))
         val canNotify = due && gate.canNotify(obs.atMs)
         val first = thresholdPolicy.isFirst(session)
         if (canNotify) thresholdPolicy.markDecided(session!!, watchMs, gate.minIntervalMs)

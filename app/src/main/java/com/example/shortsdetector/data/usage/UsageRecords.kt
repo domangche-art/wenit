@@ -64,7 +64,13 @@ enum class InterventionOutcome {
     CONTINUED,
     IGNORED,
     /** 이탈 신호로 앱이 오버레이를 닫았다. 사용자의 반응이 아니므로 단계 규칙과 멈춤 비율에 넣지 않는다. */
-    INTERRUPTED
+    INTERRUPTED,
+
+    /**
+     * 하루 허용 시간을 골랐다(14단계). 사용자가 스스로 쓰기로 한 시간이라 넘김·무시로 세지 않는다:
+     * 단계와 연속 횟수를 바꾸지 않고, 멈춤 비율에도 넣지 않는다. 허용 시간 사용 기록은 allowance_uses 에 따로 남는다.
+     */
+    ALLOWANCE
 }
 
 /** 스스로 멈춘 개입 뒤 어떻게 됐는가. 기다리는 중이면 null 이다. */
@@ -118,6 +124,25 @@ data class InterventionRecord(
     val shortsReturnMs: Long? = null,
     /** 멈춘 뒤 숏폼 없이 대상 앱을 처음 열기까지 걸린 시간 */
     val appReturnMs: Long? = null
+)
+
+/**
+ * 하루 허용 시간을 한 번 쓴 기록(14단계). 팝업에서 고른 때부터 다 쓰거나 쇼츠를 떠날 때까지.
+ * @param usedMs 그동안 늘어난 확정 시청시간(멈춘 영상·가림·이탈 대기 제외)
+ * @param budgetMs 고를 때 남아 있던 시간
+ * @param exhausted 다 써서 끝났다(아니면 쇼츠를 떠나 멈춤)
+ * @param level 고를 때(=다 쓰면 띄울) 개입 단계
+ */
+data class AllowanceUseRecord(
+    val id: String,
+    val startedAtMs: Long,
+    val endedAtMs: Long,
+    val usedMs: Long,
+    val budgetMs: Long,
+    val exhausted: Boolean,
+    val level: Int,
+    val isDemo: Boolean = false,
+    val isSeed: Boolean = false
 )
 
 /** [RULE]: 사람이나 에이전트가 아니라 결정론적 단계 규칙이 바꿨다. */

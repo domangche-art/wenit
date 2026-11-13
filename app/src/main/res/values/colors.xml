@@ -10,6 +10,8 @@
     <color name="popup_on_accent">#FFFFFFFF</color>
     <color name="popup_option_bg">#FFEEF0F4</color>
     <color name="popup_character">#FFC5CAE9</color>
+    <!-- 14단계 재생 안내: 영상 위에서도 읽히게 팝업 색을 조금 불투명하게 쓴다 -->
+    <color name="resume_hint_bg">#F2FFFFFF</color>
     <!-- Lv.3 숨 고르기: 모드와 무관하게 어둡게 덮는다 -->
     <color name="breathing_scrim">#E6000000</color>
     <color name="breathing_text">#FFFFFFFF</color>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 14단계: 팝업이 닫힌 뒤 앱이 멈춘 영상을 다시 재생하는 법을 알려 준다. 창이 터치를 받지 않는다(ResumeHintOverlay) -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/resumeHintText"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_resume_hint"
+    android:gravity="center"
+    android:paddingStart="@dimen/resume_hint_padding_h"
+    android:paddingTop="@dimen/resume_hint_padding_v"
+    android:paddingEnd="@dimen/resume_hint_padding_h"
+    android:paddingBottom="@dimen/resume_hint_padding_v"
+    android:text="@string/resume_hint"
+    android:textColor="@color/popup_text"
+    android:textSize="@dimen/resume_hint_text" />

@@ -14,6 +14,7 @@ data class LevelStep(val policy: InterventionPolicy, val streaks: LevelStreaks, 
  *    Lv.1 은 넘김(CONTINUED / IGNORED)이 연속 escalateAfterSkips 번, Lv.2 는 CONTINUED 한 번이다.
  *  - STOPPED 가 연속 deescalateAfterStops 번이면 한 단계 내린다(Lv.1 이 바닥).
  *  - INTERRUPTED 는 사용자의 반응이 아니므로 단계도 연속 횟수도 바꾸지 않는다.
+ *  - ALLOWANCE(허용 시간 선택)는 사용자가 정한 시간을 쓰는 것이라 넘김으로 세지 않는다. 단계도 연속 횟수도 바꾸지 않는다.
  *  - 멈추면 넘김 연속이 끊기고, 멈추지 않으면 멈춤 연속이 끊긴다. 단계가 바뀌면 둘 다 0 부터 다시 센다.
  */
 object InterventionLevelRules {
@@ -21,7 +22,8 @@ object InterventionLevelRules {
     fun next(policy: InterventionPolicy, streaks: LevelStreaks, outcome: InterventionOutcome): LevelStep {
         val p = policy.clamped()
         return when {
-            outcome == InterventionOutcome.INTERRUPTED -> LevelStep(p, streaks, levelChanged = false)
+            outcome == InterventionOutcome.INTERRUPTED || outcome == InterventionOutcome.ALLOWANCE ->
+                LevelStep(p, streaks, levelChanged = false)
             outcome == InterventionOutcome.STOPPED -> {
                 val stops = streaks.stops + 1
                 if (stops >= p.deescalateAfterStops && p.level > InterventionPolicyBounds.MIN_LEVEL) {

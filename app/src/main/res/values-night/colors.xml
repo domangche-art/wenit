@@ -7,4 +7,5 @@
     <color name="popup_on_accent">#FF10132B</color>
     <color name="popup_option_bg">#FF3A3A40</color>
     <color name="popup_character">#FF5C6BC0</color>
+    <color name="resume_hint_bg">#F22B2B2F</color>
 </resources>

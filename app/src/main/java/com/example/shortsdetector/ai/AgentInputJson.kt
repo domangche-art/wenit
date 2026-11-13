@@ -3,6 +3,7 @@ package com.example.shortsdetector.ai
 import com.example.shortsdetector.data.goal.Goal
 import com.example.shortsdetector.data.goal.GoalType
 import com.example.shortsdetector.data.stats.AgentInput
+import com.example.shortsdetector.data.stats.AllowanceSummary
 import com.example.shortsdetector.data.stats.GoalAchievementSummary
 import com.example.shortsdetector.data.stats.InterventionBehavior
 import com.example.shortsdetector.data.stats.RecentUsageStats
@@ -65,6 +66,14 @@ object AgentInputJson {
                     .put("currentStreakDays", it.currentStreak)
                     .put("bestStreakDays", it.bestStreak)
             }
+        )
+        root.put(
+            "allowance",
+            JSONObject()
+                .put("dailyMinutes", input.allowance.dailyMinutes)
+                .put("days", AllowanceSummary.DAYS)
+                .put("averageUsedMs", input.allowance.averageUsedMs)
+                .put("usedUpDays", input.allowance.usedUpDays)
         )
         root.put(
             "recentPolicyChanges",
