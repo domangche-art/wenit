@@ -53,6 +53,8 @@ enum class EscalationRule {
  * @param maxLevelLabel 설정의 "최대 개입 단계" 선택지 문구. 최대 단계로 고를 수 없으면 null
  * @param description 에이전트 프롬프트에 넣는 한 줄 설명
  * @param promisesMoreTime 계속 보기 버튼이 "5분만 더" 처럼 시간을 약속한다. 그 시간이 지날 때까지 다시 개입하지 않는다
+ * @param pausesOnShow 팝업을 띄우는 순간 영상을 멈춘다(알림 방식은 멈추지 않는다). 다시 재생은 사용자가 한다.
+ *   숨 고르기(Lv.3)는 카운트다운을 시작할 때 따로 멈추므로 false 다.
  */
 data class InterventionLevelSpec(
     val number: Int,
@@ -62,7 +64,8 @@ data class InterventionLevelSpec(
     val escalation: EscalationRule,
     @StringRes val maxLevelLabel: Int?,
     val description: String,
-    val promisesMoreTime: Boolean = false
+    val promisesMoreTime: Boolean = false,
+    val pausesOnShow: Boolean = false
 )
 
 /**
@@ -76,11 +79,13 @@ object InterventionLevels {
     val ALL: List<InterventionLevelSpec> = listOf(
         InterventionLevelSpec(
             1, InterventionKind.NOTICE, OverlayWindow.CARD, R.layout.overlay_intervention_lv1,
-            EscalationRule.AFTER_SKIPS, null, "Lv.1 가벼운 알림"
+            EscalationRule.AFTER_SKIPS, null, "Lv.1 가벼운 알림",
+            pausesOnShow = true
         ),
         InterventionLevelSpec(
             2, InterventionKind.QUESTION, OverlayWindow.CARD, R.layout.overlay_intervention_lv2,
-            EscalationRule.ON_CONTINUE, R.string.settings_max_level_2, "Lv.2 이유를 묻는 질문"
+            EscalationRule.ON_CONTINUE, R.string.settings_max_level_2, "Lv.2 이유를 묻는 질문",
+            pausesOnShow = true
         ),
         InterventionLevelSpec(
             3, InterventionKind.BREATHING, OverlayWindow.FULL_SCREEN, R.layout.overlay_intervention_lv3,

@@ -45,13 +45,15 @@ class CharacterOverlay(
      */
     fun show(anchor: CharacterAnchor, widthPx: Int): Boolean {
         dismiss()
-        if (!isEnabled()) return false
-        val wm = service.getSystemService(WindowManager::class.java) ?: return false
+        if (!isEnabled()) return skipped("설정 꺼짐")
+        val wm = service.getSystemService(WindowManager::class.java) ?: return skipped("WindowManager 없음")
         return try {
-            val drawable = service.getDrawable(R.drawable.wenit_character) ?: return false
+            val drawable = service.getDrawable(R.drawable.wenit_character) ?: return skipped("그림 없음")
             baseWidth = widthPx
             baseHeight = (widthPx.toLong() * drawable.intrinsicHeight / drawable.intrinsicWidth.coerceAtLeast(1)).toInt()
-            val placement = CharacterPlacement.place(screenBox(wm), anchor, baseWidth, baseHeight) ?: return false
+            val screen = screenBox(wm)
+            val placement = CharacterPlacement.place(screen, anchor, baseWidth, baseHeight)
+                ?: return skipped("자리 없음 screen=$screen anchor=$anchor size=${baseWidth}x$baseHeight")
             val v = ImageView(service).apply {
                 setImageDrawable(drawable)
                 scaleType = ImageView.ScaleType.FIT_CENTER
@@ -74,6 +76,7 @@ class CharacterOverlay(
             params = p
             this.anchor = anchor
             popIn(v, placement)
+            Log.i(ShortsDetectionService.TAG, "캐릭터 표시: ${placement.width}x${placement.height} at (${placement.x}, ${placement.y})")
             true
         } catch (e: RuntimeException) {
             Log.w(ShortsDetectionService.TAG, "캐릭터 표시 실패: ${e.javaClass.simpleName}")
@@ -91,6 +94,7 @@ class CharacterOverlay(
         val wm = service.getSystemService(WindowManager::class.java) ?: return
         val placement = CharacterPlacement.place(screenBox(wm), anchor, baseWidth, baseHeight)
         if (placement == null) {
+            skipped("옮길 자리 없음 anchor=$anchor")
             dismiss()
             return
         }
@@ -117,6 +121,12 @@ class CharacterOverlay(
         } catch (e: RuntimeException) {
             Log.w(ShortsDetectionService.TAG, "캐릭터 제거 실패: ${e.javaClass.simpleName}")
         }
+    }
+
+    /** 띄우지 않은 이유를 남긴다. 좌표·크기 같은 구조 값만 쓴다. */
+    private fun skipped(reason: String): Boolean {
+        Log.i(ShortsDetectionService.TAG, "캐릭터 표시 안 함: $reason")
+        return false
     }
 
     private fun isEnabled(): Boolean = try {

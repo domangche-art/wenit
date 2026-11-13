@@ -38,6 +38,8 @@ import com.example.shortsdetector.detection.state.DetectionTuning
 import com.example.shortsdetector.detection.state.UserPauseDetector
 import com.example.shortsdetector.ai.agent.AgentPreferences
 import com.example.shortsdetector.intervention.AgentCopyProvider
+import com.example.shortsdetector.intervention.AppHold
+import com.example.shortsdetector.intervention.InterventionLevels
 import com.example.shortsdetector.intervention.AudioPlaybackControls
 import com.example.shortsdetector.intervention.GoalRemaining
 import com.example.shortsdetector.intervention.InterventionCoordinator
@@ -101,8 +103,8 @@ class ShortsDetectionService : AccessibilityService() {
     /** 사용자가 직접 멈춘 영상 판정. 앱이 멈춘 경우([PlaybackPauser.pausedByApp])와 따로 둔다. */
     private val userPause = UserPauseDetector()
 
-    /** Lv.3 숨 고르기 카운트다운 중 */
-    private var breathing = false
+    /** 앱이 개입하면서 영상을 멈추게 했거나 화면을 덮은 상태(Lv.1·2 팝업, Lv.3 카운트다운) */
+    private val appHold = AppHold()
 
     /** 쇼츠 복귀를 시청이 확정된 경우만 기록한다. */
     private val returnConfirmer = ShortsReturnConfirmer()
@@ -343,7 +345,7 @@ class ShortsDetectionService : AccessibilityService() {
     /** 팝업을 닫는다. 답을 받지 못한 개입은 IGNORED 로 끝낸다. */
     private fun closeIntervention() {
         popup.dismiss()
-        breathing = false
+        appHold.closed()
         syncWatchHold()
         coordinator?.let { c -> guarded { onFinished(c.abandon()) } }
     }
@@ -351,7 +353,7 @@ class ShortsDetectionService : AccessibilityService() {
     /** 이탈 신호로 오버레이를 닫는다. 사용자의 반응이 아니므로 INTERRUPTED 로 남기고, 세션이 이어지면 다시 개입한다. */
     private fun interruptIntervention() {
         popup.dismiss()
-        breathing = false
+        appHold.closed()
         syncWatchHold()
         coordinator?.let { c ->
             guarded { c.interrupt()?.let { engine.retryIntervention(it.sessionNumber) } }
@@ -401,15 +403,15 @@ class ShortsDetectionService : AccessibilityService() {
         } catch (e: RuntimeException) {
             null
         }
-        val paused = userPause.update(now, audio, appPaused = pauser.pausedByApp || breathing)
+        val paused = userPause.update(now, audio, appPaused = appHold.appPaused(pauser.pausedByApp))
         if (paused != before) {
             Log.i(TAG, if (paused) "사용자 멈춤으로 봄: 시청시간·개입 멈춤" else "사용자 멈춤 풀림: 시청시간 이어서 셈")
         }
     }
 
-    /** 시청 보류 = 숨 고르기 중 || 앱이 멈춘 영상 || 사용자가 멈춘 영상. 보류 중에는 시청시간에 넣지 않고 개입하지 않는다. */
+    /** 시청 보류 = 앱 때문(팝업·카운트다운·앱이 멈춘 영상) || 사용자가 멈춘 영상. 보류 중에는 시청시간에 넣지 않고 개입하지 않는다. */
     private fun syncWatchHold() {
-        engine.setWatchHold(breathing || pauser.pausedByApp || userPause.paused)
+        engine.setWatchHold(appHold.watchHeld(pauser.pausedByApp, userPause.paused))
     }
 
     /** 개입 하나가 끝났다. 최대 단계 아래로 내려가면 최대 단계 반복 간격을 푼다. */
@@ -638,6 +640,12 @@ class ShortsDetectionService : AccessibilityService() {
             engine.setRepeatFloor(MaxLevelRepeatRule.gapAfterShowing(level, resolved))
         }
         engine.setInterventionOpen(popupShown, atMs)
+        // Lv.1·2 팝업은 띄우는 순간 영상을 멈춘다(12단계). 알림 방식은 멈추지 않는다. 다시 재생은 사용자가 한다.
+        if (popupShown && InterventionLevels.of(level).pausesOnShow) {
+            appHold.cardOpen = true
+            syncWatchHold()
+            pausePlayback()
+        }
     }
 
     /**
@@ -664,6 +672,8 @@ class ShortsDetectionService : AccessibilityService() {
         override fun onResponse(outcome: InterventionOutcome) {
             val c = coordinator ?: return
             guarded {
+                appHold.cardOpen = false
+                syncWatchHold()
                 val result = c.respond(outcome) ?: return@guarded
                 onFinished(result)
                 Log.i(TAG, "개입 반응: Lv.${result.level} $outcome → Lv.${result.nextLevel}")
@@ -675,13 +685,13 @@ class ShortsDetectionService : AccessibilityService() {
         }
 
         override fun onBreathingStarted() {
-            breathing = true
+            appHold.breathing = true
             syncWatchHold()
             pausePlayback()
         }
 
         override fun onBreathingFinished() {
-            breathing = false
+            appHold.breathing = false
             syncWatchHold()
         }
 
