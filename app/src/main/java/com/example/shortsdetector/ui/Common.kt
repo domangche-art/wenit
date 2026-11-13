@@ -35,6 +35,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.shortsdetector.R
 import com.example.shortsdetector.ai.AiFailureKind
+import com.example.shortsdetector.data.goal.GoalGroup
+import com.example.shortsdetector.data.goal.GoalPeriod
 import com.example.shortsdetector.data.goal.GoalSource
 import com.example.shortsdetector.data.goal.GoalStatus
 import com.example.shortsdetector.data.goal.GoalType
@@ -131,7 +133,7 @@ fun StatusBadge(status: GoalStatus) {
         GoalStatus.ON_TRACK -> c.primaryContainer to c.onPrimaryContainer
         GoalStatus.ACHIEVED -> c.tertiaryContainer to c.onTertiaryContainer
         GoalStatus.EXCEEDED -> c.errorContainer to c.onErrorContainer
-        GoalStatus.MISSED -> c.surfaceVariant to c.onSurfaceVariant
+        GoalStatus.MISSED, GoalStatus.UNAVAILABLE -> c.surfaceVariant to c.onSurfaceVariant
     }
     Text(
         stringResource(statusLabel(status)),
@@ -198,6 +200,7 @@ private const val SECONDS_PER_HOUR = 3_600L
     GoalStatus.EXCEEDED -> R.string.status_exceeded
     GoalStatus.ACHIEVED -> R.string.status_achieved
     GoalStatus.MISSED -> R.string.status_missed
+    GoalStatus.UNAVAILABLE -> R.string.status_unavailable
 }
 
 @StringRes fun ageLabel(v: AgeBand) = when (v) {
@@ -252,6 +255,25 @@ private const val SECONDS_PER_HOUR = 3_600L
     GoalType.TIME_WINDOW -> R.string.goal_type_time_window
     GoalType.DAILY_OPENS -> R.string.goal_type_daily_opens
     GoalType.SELF_STOPS -> R.string.goal_type_self_stops
+    GoalType.WEEKLY_TOTAL -> R.string.goal_type_weekly_total
+    GoalType.WEEKLY_REDUCTION -> R.string.goal_type_weekly_reduction
+    GoalType.MORNING_START -> R.string.goal_type_morning_start
+    GoalType.NO_RETURN_30M -> R.string.goal_type_no_return_30m
+    GoalType.LV1_STOPS -> R.string.goal_type_lv1_stops
+    GoalType.NO_MAX_LEVEL -> R.string.goal_type_no_max_level
+    GoalType.SHORTS_FREE_DAYS -> R.string.goal_type_shorts_free_days
+}
+
+@StringRes fun goalGroupLabel(v: GoalGroup) = when (v) {
+    GoalGroup.REDUCE_TIME -> R.string.goal_group_reduce_time
+    GoalGroup.TIME_OF_DAY -> R.string.goal_group_time_of_day
+    GoalGroup.BREAK_HABIT -> R.string.goal_group_break_habit
+    GoalGroup.INTERVENTION_RESPONSE -> R.string.goal_group_intervention
+}
+
+@StringRes fun goalPeriodLabel(v: GoalPeriod) = when (v) {
+    GoalPeriod.DAILY -> R.string.goal_period_daily
+    GoalPeriod.WEEKLY -> R.string.goal_period_weekly
 }
 
 @StringRes fun sourceLabel(v: GoalSource) = when (v) {

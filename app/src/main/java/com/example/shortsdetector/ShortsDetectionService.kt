@@ -53,6 +53,8 @@ import com.example.shortsdetector.intervention.NotificationTaps
 import com.example.shortsdetector.intervention.PlaybackPauser
 import com.example.shortsdetector.intervention.PreferencesPolicyStore
 import com.example.shortsdetector.intervention.ResourceInterventionCopyProvider
+import com.example.shortsdetector.data.rewards.Rewards
+import com.example.shortsdetector.platform.AppForeground
 import com.example.shortsdetector.platform.DetectionStatus
 import com.example.shortsdetector.platform.ScrollEventMapper
 import java.time.LocalDate
@@ -158,6 +160,9 @@ class ShortsDetectionService : AccessibilityService() {
         applyPolicy()
         DetectionStatus.onConnected()
         NotificationTaps.listener = ::onNotificationTapped
+        BadgeNotifier.ensureChannel(this)
+        updateRewards("연결")
+        scheduleMidnightRewards()
 
         Log.i(
             TAG,
@@ -321,6 +326,7 @@ class ShortsDetectionService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(midnightRewards)
         stopWatchdog()
         closeIntervention()
         releasePlaybackControl()
@@ -420,6 +426,53 @@ class ShortsDetectionService : AccessibilityService() {
         if (!MaxLevelRepeatRule.keepsGap(result.nextLevel, InterventionPolicyPreferences.resolve(this))) {
             engine.setRepeatFloor(0L)
         }
+        updateRewards("개입")
+    }
+
+    // --- 연속 달성·배지(13단계) ---
+
+    private val midnightRewards = Runnable {
+        updateRewards("자정")
+        scheduleMidnightRewards()
+    }
+
+    /** 다음 자정 1분 뒤에 끝난 날을 판정한다. 서비스가 꺼져 있던 날은 다음 판정 때 몰아서 채운다. */
+    private fun scheduleMidnightRewards() {
+        handler.removeCallbacks(midnightRewards)
+        val zone = ZoneId.systemDefault()
+        val next = LocalDate.now(zone).plusDays(1).atStartOfDay(zone).plusMinutes(1).toInstant().toEpochMilli()
+        handler.postDelayed(midnightRewards, (next - System.currentTimeMillis()).coerceAtLeast(MIN_REWARD_DELAY_MS))
+    }
+
+    /**
+     * 끝난 날 판정과 배지 판정을 저장 스레드에서 돌린다(앞선 기록 쓰기가 끝난 뒤).
+     * 새 배지는 앱 화면이 보이면 화면의 축하에 맡기고, 쇼츠를 보는 중이면 알림을 미룬다(세션이 끝날 때 다시 시도).
+     */
+    private fun updateRewards(reason: String) {
+        usageStore?.read { s ->
+            try {
+                val update = Rewards.update(this)
+                val waiting = (s as? UsageDatabase)?.badges()
+                    ?.filter { !it.isSeed && !it.celebrated && !it.notified }.orEmpty()
+                if (update.closedDays.isNotEmpty() || update.newBadges.isNotEmpty()) {
+                    Log.i(TAG, "보상 판정($reason): 끝난 날 ${update.closedDays.size}일, 새 배지 ${update.newBadges.map { "${it.id}#${it.tier}" }}")
+                }
+                handler.postDelayed({ notifyBadges(waiting, s as? UsageDatabase) }, BADGE_NOTIFY_DELAY_MS)
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "보상 판정 실패($reason): ${e.javaClass.simpleName}")
+            }
+        }
+    }
+
+    private fun notifyBadges(waiting: List<com.example.shortsdetector.data.rewards.EarnedBadge>, db: UsageDatabase?) {
+        if (waiting.isEmpty() || db == null) return
+        if (AppForeground.visible) return
+        if (engine.sessionPackage != null) {
+            Log.i(TAG, "새 배지 알림 미룸: 쇼츠 보는 중")
+            return
+        }
+        if (!BadgeNotifier.notify(this, waiting)) return
+        usageStore?.read { waiting.forEach { b -> db.markBadgeNotified(b.id, b.tier) } }
     }
 
     /** 기록 실패가 감지·개입을 막지 않게 격리한다. */
@@ -537,6 +590,7 @@ class ShortsDetectionService : AccessibilityService() {
                     "pkg=${s.packageName} 추정시청=${s.estimatedWatchMs}ms(댓글창 ${s.partialWatchMs}ms 포함) 가림=${s.obscuredMs}ms " +
                     "불확실=${s.uncertainMs}ms 최대신뢰도=${s.maxConfidence} rule=${s.ruleVersion}"
             )
+            updateRewards("세션 종료")
         }
         // 종료 판정(grace)을 기다리지 않고 오버레이만 먼저 닫는다. 알림은 세션이 끝날 때 지운다.
         if (output.exitSignalStarted && popup.isShowing) {
@@ -717,6 +771,11 @@ class ShortsDetectionService : AccessibilityService() {
 
     companion object {
         const val TAG = "ShortsDetector"
+
+        private const val MIN_REWARD_DELAY_MS = 60_000L
+
+        /** "그만 볼게"로 앱이 열리는 중일 수 있어, 화면이 보이는지 조금 기다린 뒤 알림 여부를 정한다. */
+        private const val BADGE_NOTIFY_DELAY_MS = 1_500L
 
         /** OS 레벨 디바운스. accessibility_service_config.xml 의 값과 맞춘다. */
         private const val NOTIFICATION_TIMEOUT_MS = 300L

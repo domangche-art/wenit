@@ -68,4 +68,8 @@ object SavedTimeBaselinePreferences {
     }
 
     fun resolve(context: Context, compute: () -> Long?): Long? = resolve(prefs(context), compute)
+
+    /** 고정된 값만 읽는다(계산하지 않음). 서비스의 배지 판정이 쓴다. */
+    fun peek(context: Context): Long? =
+        prefs(context).takeIf { it.contains(KEY_FIRST_WEEK_AVERAGE_MS) }?.getLong(KEY_FIRST_WEEK_AVERAGE_MS, 0L)
 }

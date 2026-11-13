@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 아직 못 얻은 배지 표시. 임시 아이콘 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M7,10 L7,7.5 A5,5 0 0,1 17,7.5 L17,10 L18,10 A1.5,1.5 0 0,1 19.5,11.5 L19.5,20 A1.5,1.5 0 0,1 18,21.5 L6,21.5 A1.5,1.5 0 0,1 4.5,20 L4.5,11.5 A1.5,1.5 0 0,1 6,10 Z M9.2,10 L14.8,10 L14.8,7.5 A2.8,2.8 0 0,0 9.2,7.5 Z" />
+</vector>

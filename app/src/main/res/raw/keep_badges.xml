@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 배지 그림은 이름 규칙(badge_<배지 id>)으로 찾으므로 코드에서 직접 참조하지 않는다. 리소스 축소를 켜도 남긴다. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/badge_*" />

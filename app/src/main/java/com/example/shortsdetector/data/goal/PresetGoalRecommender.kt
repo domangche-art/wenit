@@ -16,6 +16,9 @@ object PresetGoalRecommender {
     private const val MANY_SLOTS = 3
     private const val MANY_DAYS = 6
 
+    /** 이 이하로 보는 날을 답하면 "쇼츠 안 보는 날" 목표를 넣는다 */
+    private const val FEW_DAYS = 4
+
     fun recommend(profile: UserProfile?): List<Goal> {
         val slots = profile?.watchTimeSlots.orEmpty()
         val days = profile?.watchDays.orEmpty()
@@ -27,14 +30,21 @@ object PresetGoalRecommender {
             if (slots.size >= MANY_SLOTS || days.size >= MANY_DAYS) {
                 add(goal(GoalType.DAILY_TOTAL, 45, "여러 시간대에 나눠 보면 하루 합계가 잘 안 보여서 총량을 함께 봐요."))
             }
+            if (WatchTimeSlot.MORNING in slots && WatchTimeSlot.LATE_NIGHT !in slots) {
+                add(goal(GoalType.MORNING_START, GoalRules.morningValue(9, 0), "아침에 본다고 답해서, 하루를 쇼츠 없이 시작해 봐요."))
+            }
             if (WatchTimeSlot.MORNING in slots || WatchTimeSlot.DAYTIME in slots) {
                 add(goal(GoalType.DAILY_OPENS, 5, "낮에 틈틈이 열어 보는 횟수를 먼저 살펴봐요."))
             }
             if (days.isNotEmpty() && days.all { it in WEEKEND }) {
                 add(goal(GoalType.PER_SESSION, 20, "주말에 주로 본다고 답해서, 한 번에 이어 보는 시간을 정해 봐요."))
             }
+            if (days.isNotEmpty() && days.size <= FEW_DAYS) {
+                add(goal(GoalType.SHORTS_FREE_DAYS, DayOfWeek.entries.size - days.size, "보는 날이 정해져 있어서, 안 보는 날도 지켜 봐요."))
+            }
             add(goal(GoalType.PER_SESSION, 10, "한 번에 보는 시간을 정해 두면 멈출 때를 고르기 쉬워요."))
             add(goal(GoalType.DAILY_TOTAL, 60, "하루 전체 시간을 가볍게 확인해 봐요."))
+            add(goal(GoalType.LV1_STOPS, 1, "첫 알림이 오면 한 번 멈춰 보는 것부터 시작해 봐요."))
             add(goal(GoalType.SELF_STOPS, 1, "하루 한 번, 스스로 멈춰 보는 것부터 시작해 봐요."))
         }
         return candidates.distinctBy { it.type }.take(GoalRules.MAX_GOALS)

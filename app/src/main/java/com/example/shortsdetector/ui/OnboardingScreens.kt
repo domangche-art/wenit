@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.shortsdetector.R
+import com.example.shortsdetector.data.goal.GoalGroup
 import com.example.shortsdetector.data.goal.GoalRules
 import com.example.shortsdetector.data.goal.GoalType
 import com.example.shortsdetector.data.profile.AgeBand
@@ -190,23 +192,50 @@ fun CustomGoalScreen(vm: CustomGoalViewModel, onDone: () -> Unit) {
     LaunchedEffect(s.saved) { if (s.saved) onDone() }
     ScreenColumn(Modifier.fillMaxSize()) {
         Text(stringResource(R.string.custom_title), style = MaterialTheme.typography.headlineMedium)
-        GoalType.entries.forEach {
-            SingleChoiceRow(stringResource(goalTypeLabel(it)), s.type == it) { vm.selectType(it) }
+        // 유형을 묶음별로 보여 준다. 고른 유형의 입력칸은 그 유형 바로 아래에 연다.
+        GoalGroup.entries.forEach { group ->
+            SectionTitle(stringResource(goalGroupLabel(group)))
+            GoalType.entries.filter { it.group == group }.forEach { t ->
+                SingleChoiceRow(
+                    "${stringResource(goalTypeLabel(t))} · ${stringResource(goalPeriodLabel(t.period))}", s.type == t
+                ) { vm.selectType(t) }
+                if (s.type == t) GoalValueInput(t, s, vm)
+            }
         }
-        val type = s.type
-        if (type != null) {
-            if (type == GoalType.TIME_WINDOW) {
+        if (s.full) Caption(stringResource(R.string.custom_full, GoalRules.MAX_GOALS), MaterialTheme.colorScheme.error)
+        PrimaryButton(stringResource(R.string.action_save), enabled = s.isValid) { vm.save() }
+    }
+}
+
+@Composable
+private fun GoalValueInput(type: GoalType, s: CustomGoalState, vm: CustomGoalViewModel) {
+    Column(Modifier.padding(start = WenitTokens.SpaceXl), verticalArrangement = Arrangement.spacedBy(WenitTokens.SpaceS)) {
+        when {
+            !GoalRules.hasValue(type) -> Caption(stringResource(R.string.custom_no_value))
+            GoalRules.isTimeOfDay(type) -> {
+                val night = type == GoalType.TIME_WINDOW
+                Caption(stringResource(if (night) R.string.custom_preset_night else R.string.custom_preset_morning))
+                Row(horizontalArrangement = Arrangement.spacedBy(WenitTokens.SpaceS)) {
+                    (if (night) GoalRules.NIGHT_PRESET_HOURS else GoalRules.MORNING_PRESET_HOURS).forEach { h ->
+                        val selected = s.hour.toIntOrNull() == h % 24 && s.minute.toIntOrNull() == 0
+                        FilterChip(
+                            selected = selected, onClick = { vm.selectPresetHour(h) },
+                            label = { Text(if (h == 24) stringResource(R.string.custom_preset_midnight) else stringResource(R.string.custom_preset_hour, h)) }
+                        )
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(WenitTokens.SpaceS)) {
                     NumberField(s.hour, stringResource(R.string.custom_hour), Modifier.weight(1f), vm::setHour)
                     NumberField(s.minute, stringResource(R.string.custom_minute), Modifier.weight(1f), vm::setMinute)
                 }
-            } else {
-                NumberField(s.number, stringResource(unitLabel(type)), Modifier.fillMaxWidth(), vm::setNumber)
+                if (!night) Caption(stringResource(R.string.custom_morning_note))
+                Caption(rangeText(type))
             }
-            Caption(rangeText(type))
+            else -> {
+                NumberField(s.number, stringResource(unitLabel(type)), Modifier.fillMaxWidth(), vm::setNumber)
+                Caption(rangeText(type))
+            }
         }
-        if (s.full) Caption(stringResource(R.string.custom_full, GoalRules.MAX_GOALS), MaterialTheme.colorScheme.error)
-        PrimaryButton(stringResource(R.string.action_save), enabled = s.isValid) { vm.save() }
     }
 }
 
@@ -219,14 +248,16 @@ private fun NumberField(value: String, label: String, modifier: Modifier, onChan
 }
 
 private fun unitLabel(type: GoalType) = when (type) {
-    GoalType.DAILY_TOTAL, GoalType.PER_SESSION -> R.string.custom_unit_minutes
+    GoalType.DAILY_TOTAL, GoalType.PER_SESSION, GoalType.WEEKLY_TOTAL -> R.string.custom_unit_minutes
+    GoalType.WEEKLY_REDUCTION -> R.string.custom_unit_percent
+    GoalType.SHORTS_FREE_DAYS -> R.string.custom_unit_days
     else -> R.string.custom_unit_count
 }
 
 @Composable
 private fun rangeText(type: GoalType): String {
     val r = GoalRules.rangeOf(type)
-    return if (type == GoalType.TIME_WINDOW) {
+    return if (GoalRules.isTimeOfDay(type)) {
         stringResource(R.string.custom_range_time, GoalRules.formatTimeWindow(r.first), GoalRules.formatTimeWindow(r.last))
     } else {
         stringResource(R.string.custom_range, r.first, r.last, stringResource(unitLabel(type)))

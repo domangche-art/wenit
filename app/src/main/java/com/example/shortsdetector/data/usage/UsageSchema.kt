@@ -17,10 +17,13 @@ package com.example.shortsdetector.data.usage
  *
  * 버전 7: interventions 에 return_status/shorts_return_ms/app_return_ms 추가. 전부 nullable 이고 기존 기록은 null 이다.
  * 기존 STOPPED 기록은 복귀 여부를 모르므로 값을 꾸며 넣지 않고 복귀 추적에서도 뺀다.
+ *
+ * 버전 8: day_results(끝난 하루 판정)·badges(얻은 배지) 테이블 추가. 기존 테이블은 바꾸지 않는다.
+ * 지난 날을 소급해 판정하지 않으므로 새 테이블은 비어서 시작한다.
  */
 object UsageSchema {
 
-    const val VERSION = 7
+    const val VERSION = 8
 
     /** 복귀를 지켜보지 않는 기록의 표시. 버전 7 이전 기록에만 쓴다. */
     const val RETURN_UNKNOWN = "UNKNOWN"
@@ -105,5 +108,38 @@ object UsageSchema {
         "ALTER TABLE interventions ADD COLUMN shorts_return_ms INTEGER",
         "ALTER TABLE interventions ADD COLUMN app_return_ms INTEGER",
         "UPDATE interventions SET return_status = '$RETURN_UNKNOWN' WHERE outcome = 'STOPPED'"
+    )
+
+    val MIGRATE_7_TO_8: List<String> = listOf(
+        """
+        CREATE TABLE day_results (
+            epoch_day INTEGER NOT NULL,
+            is_seed INTEGER NOT NULL DEFAULT 0,
+            daily_goals INTEGER NOT NULL,
+            daily_achieved INTEGER NOT NULL,
+            weekly_goals INTEGER NOT NULL,
+            weekly_achieved INTEGER NOT NULL,
+            watch_ms INTEGER NOT NULL,
+            self_stops INTEGER NOT NULL,
+            lv1_stops INTEGER NOT NULL,
+            no_return_stops INTEGER NOT NULL,
+            night_clean INTEGER NOT NULL,
+            shorts_free INTEGER NOT NULL,
+            saved_ms INTEGER NOT NULL,
+            PRIMARY KEY (epoch_day, is_seed)
+        )
+        """.trimIndent(),
+        """
+        CREATE TABLE badges (
+            badge_id TEXT NOT NULL,
+            tier INTEGER NOT NULL,
+            is_seed INTEGER NOT NULL DEFAULT 0,
+            earned_at_ms INTEGER NOT NULL,
+            seen INTEGER NOT NULL DEFAULT 0,
+            celebrated INTEGER NOT NULL DEFAULT 0,
+            notified INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (badge_id, tier, is_seed)
+        )
+        """.trimIndent()
     )
 }

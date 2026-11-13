@@ -21,6 +21,26 @@ object GoalRules {
     val DAILY_OPENS_RANGE = 1..30
     val SELF_STOPS_RANGE = 1..10
 
+    // --- 13단계 ---
+    val WEEKLY_TOTAL_RANGE = 30..1680
+    val WEEKLY_REDUCTION_RANGE = 5..50
+
+    /** 06:00 ~ 12:00. 아침 구간은 05:00 부터다([MORNING_FROM_MINUTE]). */
+    val MORNING_START_RANGE = (6 * 60)..(12 * 60)
+    val NO_RETURN_30M_RANGE = 1..10
+    val LV1_STOPS_RANGE = 1..10
+    val NO_MAX_LEVEL_RANGE = 1..1
+    val SHORTS_FREE_DAYS_RANGE = 1..7
+
+    /** 아침 목표 구간의 시작(05:00). 밤 목표(TIME_WINDOW)의 제한이 풀리는 시각과 같다. */
+    const val MORNING_FROM_MINUTE = 5 * 60
+
+    /** 설정 화면 프리셋: 취침 전(밤 N시 이후 안 보기) */
+    val NIGHT_PRESET_HOURS = listOf(22, 23, 24)
+
+    /** 설정 화면 프리셋: 아침(오전 N시 전에는 안 보기) */
+    val MORNING_PRESET_HOURS = listOf(7, 8, 9)
+
     /** 0~5시는 전날에서 이어지는 시각으로 본다. */
     private const val EARLY_MORNING_END_HOUR = 6
 
@@ -30,7 +50,28 @@ object GoalRules {
         GoalType.TIME_WINDOW -> TIME_WINDOW_RANGE
         GoalType.DAILY_OPENS -> DAILY_OPENS_RANGE
         GoalType.SELF_STOPS -> SELF_STOPS_RANGE
+        GoalType.WEEKLY_TOTAL -> WEEKLY_TOTAL_RANGE
+        GoalType.WEEKLY_REDUCTION -> WEEKLY_REDUCTION_RANGE
+        GoalType.MORNING_START -> MORNING_START_RANGE
+        GoalType.NO_RETURN_30M -> NO_RETURN_30M_RANGE
+        GoalType.LV1_STOPS -> LV1_STOPS_RANGE
+        GoalType.NO_MAX_LEVEL -> NO_MAX_LEVEL_RANGE
+        GoalType.SHORTS_FREE_DAYS -> SHORTS_FREE_DAYS_RANGE
     }
+
+    /** 값을 입력받지 않는 유형(값이 하나뿐) */
+    fun hasValue(type: GoalType): Boolean = rangeOf(type).let { it.first != it.last }
+
+    /** 시각으로 입력받는 유형 */
+    fun isTimeOfDay(type: GoalType): Boolean = type == GoalType.TIME_WINDOW || type == GoalType.MORNING_START
+
+    /** 시각 입력(0~23시) → MORNING_START 값. 범위 밖 시각은 잘린다. */
+    fun morningValue(hour: Int, minute: Int): Int =
+        clampValue(GoalType.MORNING_START, hour.coerceIn(0, 23) * 60 + minute.coerceIn(0, 59))
+
+    /** 시각 입력 → 유형에 맞는 값 */
+    fun timeValue(type: GoalType, hour: Int, minute: Int): Int =
+        if (type == GoalType.MORNING_START) morningValue(hour, minute) else timeWindowValue(hour, minute)
 
     fun clampValue(type: GoalType, value: Int): Int = rangeOf(type).let { value.coerceIn(it.first, it.last) }
 
@@ -92,6 +133,13 @@ object GoalRules {
         GoalType.TIME_WINDOW -> "${formatTimeWindow(value)} 이후에는 보지 않기"
         GoalType.DAILY_OPENS -> "하루 ${value}번까지만 보기"
         GoalType.SELF_STOPS -> "하루 ${value}번 이상 스스로 멈추기"
+        GoalType.WEEKLY_TOTAL -> "이번 주 ${value}분 이하로 보기"
+        GoalType.WEEKLY_REDUCTION -> "지난주보다 ${value}% 줄이기"
+        GoalType.MORNING_START -> "오전 ${formatTimeWindow(value)} 전에는 보지 않기"
+        GoalType.NO_RETURN_30M -> "멈춘 뒤 30분 참기 하루 ${value}번"
+        GoalType.LV1_STOPS -> "첫 알림에서 바로 멈추기 하루 ${value}번"
+        GoalType.NO_MAX_LEVEL -> "마지막 단계 개입까지 가지 않기"
+        GoalType.SHORTS_FREE_DAYS -> "쇼츠 안 보는 날 주 ${value}일"
     }
 
     /** 1380 → "23:00", 1500 → "새벽 1:00" */

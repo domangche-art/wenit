@@ -37,6 +37,13 @@ import com.example.shortsdetector.data.stats.SavedTimeBaselinePreferences
 import com.example.shortsdetector.data.stats.SavedTimeCalculator
 import com.example.shortsdetector.data.stats.UsageStatsCalculator
 import com.example.shortsdetector.data.usage.DemoSeedData
+import com.example.shortsdetector.BadgeNotifier
+import com.example.shortsdetector.data.rewards.BadgeCatalog
+import com.example.shortsdetector.data.rewards.DayResult
+import com.example.shortsdetector.data.rewards.EarnedBadge
+import com.example.shortsdetector.data.rewards.RewardPreferences
+import com.example.shortsdetector.data.rewards.RewardUpdate
+import com.example.shortsdetector.data.rewards.Rewards
 import com.example.shortsdetector.data.usage.ReturnTracker
 import com.example.shortsdetector.data.usage.InterventionAction
 import com.example.shortsdetector.data.usage.InterventionOutcome
@@ -116,6 +123,18 @@ interface AppRepository {
     fun deleteSeedData()
     fun runGoalEval(): Int
     fun recordNotificationTap(interventionId: String)
+
+    // --- 연속 달성·배지(13단계) ---
+    /** 끝난 날을 판정하고 배지를 판정한다(앱을 열 때). */
+    fun updateRewards(): RewardUpdate
+    fun dayResults(): List<DayResult>
+    fun badges(): List<EarnedBadge>
+    fun markBadgesSeen()
+    fun markBadgeCelebrated(id: String, tier: Int)
+    /** 판정 시작일. 쇼츠 안 본 날을 이 날부터 센다. */
+    fun trackingStart(): LocalDate
+    /** 디버그 전용: 배지 알림 모양 확인 */
+    fun testBadgeNotification(): Boolean
 }
 
 /** 화면 작업을 메인 스레드 밖에서 돌리고 결과를 메인 스레드로 넘긴다. 테스트는 바로 실행하는 구현을 쓴다. */
@@ -209,7 +228,8 @@ class AndroidAppRepository(context: Context) : AppRepository {
             db.sessionsOverlapping(window.fromMs, window.toMs),
             db.interventionsBetween(window.fromMs, window.toMs),
             db.recentPolicyChanges(RECENT_CHANGES),
-            zone(), nowMs()
+            zone(), nowMs(),
+            dayResults = db.dayResults()
         )
     }
 
@@ -273,15 +293,18 @@ class AndroidAppRepository(context: Context) : AppRepository {
 
     override fun recommendGoals(): GoalRecommendation = AiGoalRecommender(client()).recommend(input(profile()))
 
+    /** 배지·연속 기록도 같은 DB 라 함께 지워진다. 판정 시작일도 지워 다음 판정부터 새로 시작한다. */
     override fun deleteAllRecords() {
         db.deleteAll()
         SavedTimeBaselinePreferences.clear(app)
+        RewardPreferences.clear(app)
     }
 
     /** 정책 전체를 시연 시작값으로 되돌린다. 기록을 지운 뒤에 남기는 DEFAULT 한 건이 첫 변경 이력이 된다. */
     override fun resetForDemo() {
         db.deleteAll()
         SavedTimeBaselinePreferences.clear(app)
+        RewardPreferences.clear(app)
         AgentPreferences.clearRunState(app)
         val before = InterventionPolicyPreferences.resetForDemo(app)
         db.insertPolicyChange(
@@ -304,6 +327,8 @@ class AndroidAppRepository(context: Context) : AppRepository {
         db.deleteSeedRecords()
         batch.sessions.forEach(db::upsertSession)
         batch.interventions.forEach(db::insertIntervention)
+        batch.dayResults.forEach(db::upsertDayResult)
+        batch.badges.forEach(db::insertBadge)
         return batch.interventions.size
     }
 
@@ -335,6 +360,25 @@ class AndroidAppRepository(context: Context) : AppRepository {
         db.setInterventionOutcome(interventionId, InterventionOutcome.STOPPED, null)
         db.setInterventionAction(interventionId, InterventionAction.OPEN_APP, nowMs())
     }
+
+    override fun updateRewards(): RewardUpdate {
+        ReturnTracker(db).sweep(nowMs())
+        return Rewards.update(app, nowMs(), zone())
+    }
+
+    override fun dayResults() = db.dayResults()
+
+    override fun badges() = db.badges()
+
+    override fun markBadgesSeen() = db.markBadgesSeen()
+
+    override fun markBadgeCelebrated(id: String, tier: Int) = db.markBadgeCelebrated(id, tier)
+
+    override fun trackingStart(): LocalDate =
+        RewardPreferences.trackingStart(app, LocalDate.now(zone()), db.dayResults().filterNot { it.isSeed }.minOfOrNull { it.date })
+
+    override fun testBadgeNotification() =
+        BadgeNotifier.notify(app, listOf(EarnedBadge(BadgeCatalog.ALL.first().id, 0, nowMs())))
 
     private companion object {
         const val RECENT_CHANGES = 10

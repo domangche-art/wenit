@@ -3,7 +3,9 @@ package com.example.shortsdetector.data.stats
 import com.example.shortsdetector.data.goal.Goal
 import com.example.shortsdetector.data.goal.GoalDayMetrics
 import com.example.shortsdetector.data.goal.GoalProgress
+import com.example.shortsdetector.data.goal.GoalPeriod
 import com.example.shortsdetector.data.goal.GoalProgressCalculator
+import com.example.shortsdetector.data.goal.GoalWeekMetrics
 import com.example.shortsdetector.data.goal.GoalType
 import com.example.shortsdetector.data.goal.TimeWindowUsage
 import com.example.shortsdetector.data.profile.WatchTimeSlot
@@ -170,12 +172,14 @@ object UsageStatsCalculator {
         goals: List<Goal>,
         zone: ZoneId,
         nowMs: Long,
-        includeDemo: Boolean = false
+        includeDemo: Boolean = false,
+        maxLevel: Int = InterventionPolicyBounds.MAX_LEVEL,
+        countFrom: LocalDate? = null
     ): TodayStats {
         val date = DailyUsageCalculator.dateOf(nowMs, zone)
         return dayStats(
             chosenSessions(sessions, includeDemo), chosen(interventions, includeDemo), goals, zone, date,
-            dayFinished = false
+            dayFinished = false, nowMs = nowMs, maxLevel = maxLevel, countFrom = countFrom
         )
     }
 
@@ -189,15 +193,33 @@ object UsageStatsCalculator {
         goals: List<Goal>,
         zone: ZoneId,
         nowMs: Long,
-        includeDemo: Boolean = false
+        includeDemo: Boolean = false,
+        maxLevel: Int = InterventionPolicyBounds.MAX_LEVEL,
+        countFrom: LocalDate? = null
     ): DayGoalResults {
         val date = DailyUsageCalculator.dateOf(nowMs, zone).minusDays(1)
         val results = dayStats(
             chosenSessions(sessions, includeDemo), chosen(interventions, includeDemo), goals, zone, date,
-            dayFinished = true
+            dayFinished = true, nowMs = nowMs, maxLevel = maxLevel, countFrom = countFrom
         )
         return DayGoalResults(date, results.goals)
     }
+
+    /**
+     * 끝난 하루 [date] 의 목표 결과와 측정값. 연속 달성·배지 판정이 쓴다.
+     * 기록은 호출 측이 고른 것(시연·시드 제외 등)을 그대로 쓴다. 주간 목표는 [date] 가 일요일일 때만 끝난 것으로 판정된다.
+     */
+    fun closedDay(
+        sessions: List<SessionRecord>,
+        interventions: List<InterventionRecord>,
+        goals: List<Goal>,
+        zone: ZoneId,
+        date: LocalDate,
+        nowMs: Long,
+        maxLevel: Int,
+        countFrom: LocalDate?
+    ): Pair<TodayStats, GoalDayMetrics> = dayStats(sessions, interventions, goals, zone, date, true, nowMs, maxLevel, countFrom) to
+        dayMetrics(sessions, interventions, goals, zone, date, nowMs, maxLevel)
 
     private fun dayStats(
         sessions: List<SessionRecord>,
@@ -205,26 +227,97 @@ object UsageStatsCalculator {
         goals: List<Goal>,
         zone: ZoneId,
         date: LocalDate,
-        dayFinished: Boolean
+        dayFinished: Boolean,
+        nowMs: Long,
+        maxLevel: Int,
+        countFrom: LocalDate?
     ): TodayStats {
+        val metrics = dayMetrics(sessions, interventions, goals, zone, date, nowMs, maxLevel)
+        val week = if (goals.any { it.type.period == GoalPeriod.WEEKLY }) {
+            weekMetrics(sessions, zone, date, dayFinished, countFrom)
+        } else {
+            null
+        }
+        return TodayStats(
+            date = date,
+            estimatedWatchMs = metrics.watchMs,
+            goals = goals.map { GoalProgressCalculator.evaluate(it, metrics, dayFinished, week) },
+            sessionCount = metrics.sessionCount,
+            longestSessionMs = metrics.longestSessionMs,
+            interventionCount = deliveredOn(interventions, zone, date).size,
+            selfStopCount = metrics.selfStopCount
+        )
+    }
+
+    private fun deliveredOn(interventions: List<InterventionRecord>, zone: ZoneId, date: LocalDate) =
+        interventions.filter { it.method in DELIVERED && DailyUsageCalculator.dateOf(it.occurredAtMs, zone) == date }
+
+    /** 하루 측정값. 목표 판정과 배지 집계가 함께 쓴다. */
+    fun dayMetrics(
+        sessions: List<SessionRecord>,
+        interventions: List<InterventionRecord>,
+        goals: List<Goal>,
+        zone: ZoneId,
+        date: LocalDate,
+        nowMs: Long,
+        maxLevel: Int
+    ): GoalDayMetrics {
         val usage = DailyUsageCalculator.aggregate(sessions, zone, date, date).single()
         val longest = sessions.filter { DailyUsageCalculator.dateOf(it.startedAtMs, zone) == date }
             .maxOfOrNull { it.estimatedWatchMs } ?: 0L
-        val delivered = interventions.filter {
-            it.method in DELIVERED && DailyUsageCalculator.dateOf(it.occurredAtMs, zone) == date
-        }
-        val stops = delivered.count { it.outcome == InterventionOutcome.STOPPED }
+        val delivered = deliveredOn(interventions, zone, date)
+        val stopped = delivered.filter { it.outcome == InterventionOutcome.STOPPED }
         val restricted = goals.firstOrNull { it.type == GoalType.TIME_WINDOW }
             ?.let { TimeWindowUsage.restrictedWatchMs(sessions, it.value, date, zone) } ?: 0L
-        val metrics = GoalDayMetrics(usage.estimatedWatchMs, longest, usage.sessionCount, stops, restricted)
-        return TodayStats(
-            date = date,
-            estimatedWatchMs = usage.estimatedWatchMs,
-            goals = goals.map { GoalProgressCalculator.evaluate(it, metrics, dayFinished) },
-            sessionCount = usage.sessionCount,
+        val morning = goals.firstOrNull { it.type == GoalType.MORNING_START }
+            ?.let { TimeWindowUsage.morningWatchMs(sessions, it.value, date, zone) } ?: 0L
+        return GoalDayMetrics(
+            watchMs = usage.estimatedWatchMs,
             longestSessionMs = longest,
-            interventionCount = delivered.size,
-            selfStopCount = stops
+            sessionCount = usage.sessionCount,
+            selfStopCount = stopped.size,
+            restrictedWatchMs = restricted,
+            lv1StopCount = stopped.count { it.level == 1 },
+            noReturnStopCount = stopped.count { notBackWithin30Min(it, nowMs) },
+            maxLevelReached = delivered.any { (it.level ?: 0) >= maxLevel },
+            morningWatchMs = morning
+        )
+    }
+
+    /**
+     * 스스로 멈춘 뒤 30분 안에 쇼츠로 돌아오지 않았음이 확정됐다.
+     * 30분 안에 돌아왔으면 [InterventionReturn.SHORTS] 와 그 간격이 남는다. 결과가 아직 없으면 30분이 지나야 확정이다.
+     */
+    fun notBackWithin30Min(r: InterventionRecord, nowMs: Long): Boolean {
+        if (r.outcome != InterventionOutcome.STOPPED) return false
+        val back = r.returnStatus == InterventionReturn.SHORTS && (r.shortsReturnMs ?: Long.MAX_VALUE) <= THIRTY_MINUTES_MS
+        if (back) return false
+        return r.returnStatus != null || nowMs - (r.actionAtMs ?: r.occurredAtMs) >= THIRTY_MINUTES_MS
+    }
+
+    /**
+     * 이번 주(월~[date]) 측정값. 지난주는 월~일 전체 합이고, 시청한 날이 하루도 없으면 null 이다.
+     * 쇼츠 안 본 날은 끝난 날만 센다([dayFinished] 이면 [date] 포함).
+     */
+    fun weekMetrics(
+        sessions: List<SessionRecord>,
+        zone: ZoneId,
+        date: LocalDate,
+        dayFinished: Boolean,
+        countFrom: LocalDate?
+    ): GoalWeekMetrics {
+        val monday = weekStart(date)
+        val thisWeek = DailyUsageCalculator.aggregate(sessions, zone, monday, date)
+        val lastWeek = DailyUsageCalculator.aggregate(sessions, zone, monday.minusWeeks(1), monday.minusDays(1))
+        val lastDone = if (dayFinished) date else date.minusDays(1)
+        val free = thisWeek.count {
+            !it.date.isAfter(lastDone) && it.estimatedWatchMs == 0L && (countFrom == null || !it.date.isBefore(countFrom))
+        }
+        return GoalWeekMetrics(
+            weekWatchMs = thisWeek.sumOf { it.estimatedWatchMs },
+            lastWeekWatchMs = lastWeek.sumOf { it.estimatedWatchMs }.takeIf { lastWeek.any { d -> d.estimatedWatchMs > 0L } },
+            shortsFreeDays = free,
+            weekFinished = dayFinished && date.dayOfWeek == DayOfWeek.SUNDAY
         )
     }
 
@@ -378,6 +471,6 @@ object UsageStatsCalculator {
     private fun chosen(interventions: List<InterventionRecord>, includeDemo: Boolean) =
         if (includeDemo) interventions else interventions.filterNot { it.isDemo }
 
-    private fun weekStart(date: LocalDate): LocalDate =
+    fun weekStart(date: LocalDate): LocalDate =
         date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
 }

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 임시 아이콘(메달). 디자인이 정해지면 교체한다 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M7,2 L11,9 L9.2,9.6 L5,2.6 Z M17,2 L13,9 L14.8,9.6 L19,2.6 Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,9 A6.5,6.5 0 1,1 11.99,9 Z M12,11.5 A4,4 0 1,0 12.01,11.5 Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,12.6 L12.9,14.5 L14.9,14.7 L13.4,16 L13.8,18 L12,17 L10.2,18 L10.6,16 L9.1,14.7 L11.1,14.5 Z" />
+</vector>

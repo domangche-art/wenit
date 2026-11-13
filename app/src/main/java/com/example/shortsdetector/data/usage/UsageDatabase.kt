@@ -5,7 +5,11 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import com.example.shortsdetector.data.rewards.DayResult
+import com.example.shortsdetector.data.rewards.EarnedBadge
+import com.example.shortsdetector.data.rewards.RewardStore
 import com.example.shortsdetector.intervention.InterventionPolicyCodec
+import java.time.LocalDate
 
 /**
  * 기기 내 SQLite 저장소. 플랫폼 기본 API(SQLiteOpenHelper)만 쓴다 — 새 라이브러리 없음.
@@ -15,7 +19,7 @@ import com.example.shortsdetector.intervention.InterventionPolicyCodec
  * 동의 없는 외부 전송을 막기 위함(명세 3.1-6).
  */
 class UsageDatabase private constructor(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, NAME, null, UsageSchema.VERSION), UsageStore {
+    SQLiteOpenHelper(context.applicationContext, NAME, null, UsageSchema.VERSION), UsageStore, RewardStore {
 
     override fun onCreate(db: SQLiteDatabase) {
         // 새 설치도 업그레이드와 같은 경로를 지나게 해 두 스키마가 갈라지지 않게 한다.
@@ -26,6 +30,7 @@ class UsageDatabase private constructor(context: Context) :
         UsageSchema.MIGRATE_4_TO_5.forEach(db::execSQL)
         UsageSchema.MIGRATE_5_TO_6.forEach(db::execSQL)
         UsageSchema.MIGRATE_6_TO_7.forEach(db::execSQL)
+        UsageSchema.MIGRATE_7_TO_8.forEach(db::execSQL)
     }
 
     /** SQLiteOpenHelper 가 트랜잭션으로 감싸 호출한다. 기존 기록은 지우지 않는다. */
@@ -36,6 +41,100 @@ class UsageDatabase private constructor(context: Context) :
         if (oldVersion < 5) UsageSchema.MIGRATE_4_TO_5.forEach(db::execSQL)
         if (oldVersion < 6) UsageSchema.MIGRATE_5_TO_6.forEach(db::execSQL)
         if (oldVersion < 7) UsageSchema.MIGRATE_6_TO_7.forEach(db::execSQL)
+        if (oldVersion < 8) UsageSchema.MIGRATE_7_TO_8.forEach(db::execSQL)
+    }
+
+    // --- 하루 결과·배지(13단계) ---
+
+    override fun upsertDayResult(result: DayResult) {
+        val v = ContentValues().apply {
+            put("epoch_day", result.date.toEpochDay())
+            put("is_seed", if (result.isSeed) 1 else 0)
+            put("daily_goals", result.dailyGoals)
+            put("daily_achieved", result.dailyAchieved)
+            put("weekly_goals", result.weeklyGoals)
+            put("weekly_achieved", result.weeklyAchieved)
+            put("watch_ms", result.watchMs)
+            put("self_stops", result.selfStops)
+            put("lv1_stops", result.lv1Stops)
+            put("no_return_stops", result.noReturnStops)
+            put("night_clean", if (result.nightClean) 1 else 0)
+            put("shorts_free", if (result.shortsFree) 1 else 0)
+            put("saved_ms", result.savedMs)
+        }
+        writableDatabase.insertWithOnConflict("day_results", null, v, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    override fun dayResults(): List<DayResult> =
+        readableDatabase.query("day_results", null, null, null, null, null, "epoch_day ASC").use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(
+                        DayResult(
+                            date = LocalDate.ofEpochDay(c.long("epoch_day")),
+                            dailyGoals = c.long("daily_goals").toInt(),
+                            dailyAchieved = c.long("daily_achieved").toInt(),
+                            weeklyGoals = c.long("weekly_goals").toInt(),
+                            weeklyAchieved = c.long("weekly_achieved").toInt(),
+                            watchMs = c.long("watch_ms"),
+                            selfStops = c.long("self_stops").toInt(),
+                            lv1Stops = c.long("lv1_stops").toInt(),
+                            noReturnStops = c.long("no_return_stops").toInt(),
+                            nightClean = c.long("night_clean") != 0L,
+                            shortsFree = c.long("shorts_free") != 0L,
+                            savedMs = c.long("saved_ms"),
+                            isSeed = c.long("is_seed") != 0L
+                        )
+                    )
+                }
+            }
+        }
+
+    override fun insertBadge(badge: EarnedBadge): Boolean {
+        val v = ContentValues().apply {
+            put("badge_id", badge.id)
+            put("tier", badge.tier)
+            put("is_seed", if (badge.isSeed) 1 else 0)
+            put("earned_at_ms", badge.earnedAtMs)
+            put("seen", if (badge.seen) 1 else 0)
+            put("celebrated", if (badge.celebrated) 1 else 0)
+            put("notified", if (badge.notified) 1 else 0)
+        }
+        return writableDatabase.insertWithOnConflict("badges", null, v, SQLiteDatabase.CONFLICT_IGNORE) != -1L
+    }
+
+    override fun badges(): List<EarnedBadge> =
+        readableDatabase.query("badges", null, null, null, null, null, "earned_at_ms ASC").use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(
+                        EarnedBadge(
+                            id = c.str("badge_id")!!,
+                            tier = c.long("tier").toInt(),
+                            earnedAtMs = c.long("earned_at_ms"),
+                            isSeed = c.long("is_seed") != 0L,
+                            seen = c.long("seen") != 0L,
+                            celebrated = c.long("celebrated") != 0L,
+                            notified = c.long("notified") != 0L
+                        )
+                    )
+                }
+            }
+        }
+
+    override fun markBadgesSeen() {
+        writableDatabase.update("badges", ContentValues().apply { put("seen", 1) }, "seen = 0", null)
+    }
+
+    override fun markBadgeCelebrated(id: String, tier: Int) = markBadge("celebrated", id, tier)
+
+    override fun markBadgeNotified(id: String, tier: Int) = markBadge("notified", id, tier)
+
+    private fun markBadge(column: String, id: String, tier: Int) {
+        writableDatabase.update(
+            "badges", ContentValues().apply { put(column, 1) },
+            "badge_id = ? AND tier = ? AND is_seed = 0", arrayOf(id, tier.toString())
+        )
     }
 
     override fun upsertSession(record: SessionRecord) {
@@ -159,6 +258,8 @@ class UsageDatabase private constructor(context: Context) :
         try {
             db.delete("sessions", "is_seed = 1", null)
             db.delete("interventions", "is_seed = 1", null)
+            db.delete("day_results", "is_seed = 1", null)
+            db.delete("badges", "is_seed = 1", null)
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -194,6 +295,8 @@ class UsageDatabase private constructor(context: Context) :
             db.delete("sessions", null, null)
             db.delete("interventions", null, null)
             db.delete("policy_changes", null, null)
+            db.delete("day_results", null, null)
+            db.delete("badges", null, null)
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()

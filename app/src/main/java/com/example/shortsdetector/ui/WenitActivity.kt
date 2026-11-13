@@ -33,6 +33,11 @@ import com.example.shortsdetector.BuildConfig
 import com.example.shortsdetector.R
 import com.example.shortsdetector.ShortsNotifier
 import com.example.shortsdetector.intervention.NotificationTaps
+import com.example.shortsdetector.platform.AppForeground
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.example.shortsdetector.ui.theme.WenitTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -60,6 +65,16 @@ class WenitActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AppForeground.visible = true
+    }
+
+    override fun onPause() {
+        AppForeground.visible = false
+        super.onPause()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -102,6 +117,7 @@ private object Routes {
     const val CUSTOM_GOAL = "custom_goal"
     const val HOME = "home"
     const val RECORDS = "records"
+    const val SHOWCASE = "showcase"
     const val SETTINGS = "settings"
     const val DEVELOPER = "developer"
 }
@@ -111,6 +127,7 @@ private class Tab(val route: String, val label: Int, val icon: Int)
 private val tabs = listOf(
     Tab(Routes.HOME, R.string.tab_home, R.drawable.ic_tab_home),
     Tab(Routes.RECORDS, R.string.tab_records, R.drawable.ic_tab_records),
+    Tab(Routes.SHOWCASE, R.string.tab_showcase, R.drawable.ic_tab_showcase),
     Tab(Routes.SETTINGS, R.string.tab_settings, R.drawable.ic_tab_settings)
 )
 
@@ -127,12 +144,19 @@ private fun WenitApp(
     arrivals: MutableStateFlow<Int>,
     stopped: MutableStateFlow<Long?>
 ) {
+    val newBadgeLabel = stringResource(R.string.tab_new_badge)
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
     val start = remember { if (onboardingDone) Routes.HOME else Routes.SURVEY }
     val arrival by arrivals.collectAsState()
     val stoppedMs by stopped.collectAsState()
+    val rewardsVm: RewardsViewModel = viewModel(factory = factory)
+    val rewards by rewardsVm.state.collectAsState()
+    // 앱이 보일 때마다 끝난 날·배지를 판정한다. 온보딩 중에는 축하하지 않는다.
+    val inMain = route != null && (tabs.any { it.route == route } || route == Routes.DEVELOPER)
+    OnResume { if (onboardingDone || inMain) rewardsVm.refresh() }
+    LaunchedEffect(inMain) { if (inMain) rewardsVm.refresh() }
 
     // 온보딩 중에는 건너뛰지 않는다.
     LaunchedEffect(arrival) {
@@ -151,10 +175,15 @@ private fun WenitApp(
             if (tabs.any { it.route == route }) {
                 NavigationBar {
                     tabs.forEach { tab ->
+                        val dot = tab.route == Routes.SHOWCASE && rewards.hasNew && route != Routes.SHOWCASE
                         NavigationBarItem(
                             selected = route == tab.route,
                             onClick = { nav.goToTab(tab.route) },
-                            icon = { Icon(painterResource(tab.icon), contentDescription = null) },
+                            icon = {
+                                BadgedBox(badge = {
+                                    if (dot) Badge(Modifier.semantics { contentDescription = newBadgeLabel })
+                                }) { Icon(painterResource(tab.icon), contentDescription = null) }
+                            },
                             label = { Text(stringResource(tab.label)) }
                         )
                     }
@@ -192,6 +221,7 @@ private fun WenitApp(
                     )
                 }
                 composable(Routes.RECORDS) { RecordsScreen(viewModel(factory = factory)) }
+                composable(Routes.SHOWCASE) { ShowcaseScreen(viewModel(factory = factory), onSeen = rewardsVm::seen) }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(
                         viewModel(factory = factory),
@@ -204,6 +234,7 @@ private fun WenitApp(
                     DeveloperScreen(
                         viewModel(factory = factory),
                         onBack = { nav.popBackStack() },
+                        onPreviewCelebration = rewardsVm::preview,
                         onRestarted = {
                             nav.navigate(Routes.SURVEY) {
                                 popUpTo(nav.graph.id) { inclusive = true }
@@ -215,4 +246,6 @@ private fun WenitApp(
             }
         }
     }
+    val celebrate = rewards.celebrate
+    if (celebrate != null && inMain) CelebrationDialog(celebrate, rewardsVm::celebrated)
 }

@@ -20,7 +20,11 @@ import com.example.shortsdetector.data.profile.UsualDailyWatch
 import com.example.shortsdetector.data.profile.WatchTimeSlot
 import com.example.shortsdetector.data.stats.AgentInputBuilder
 import com.example.shortsdetector.data.stats.SavedTimeBaseline
+import com.example.shortsdetector.data.rewards.InMemoryRewardStore
+import com.example.shortsdetector.data.rewards.RewardUpdate
+import com.example.shortsdetector.data.rewards.RewardsUpdater
 import com.example.shortsdetector.data.usage.DemoSeedData
+import com.example.shortsdetector.data.usage.InMemoryUsageStore
 import com.example.shortsdetector.data.usage.InterventionMethod
 import com.example.shortsdetector.data.usage.InterventionOutcome
 import com.example.shortsdetector.data.usage.InterventionRecord
@@ -161,6 +165,21 @@ class ViewModelsTest {
         }
         override fun runGoalEval() = 15
         override fun recordNotificationTap(interventionId: String) = Unit
+
+        val rewardStore = InMemoryRewardStore()
+        var trackingStartDate: LocalDate = this@ViewModelsTest.today
+        override fun updateRewards(): RewardUpdate {
+            val s = InMemoryUsageStore()
+            sessionList.forEach(s::upsertSession)
+            interventionList.forEach(s::insertIntervention)
+            return RewardsUpdater(s, rewardStore, zone()).run(clockMs, goalList, currentPolicy.maxLevel, null, trackingStartDate)
+        }
+        override fun dayResults() = rewardStore.dayResults()
+        override fun badges() = rewardStore.badges()
+        override fun markBadgesSeen() = rewardStore.markBadgesSeen()
+        override fun markBadgeCelebrated(id: String, tier: Int) = rewardStore.markBadgeCelebrated(id, tier)
+        override fun trackingStart() = trackingStartDate
+        override fun testBadgeNotification() = true
     }
 
     private val repo = FakeRepo()
@@ -747,5 +766,99 @@ class ViewModelsTest {
         val vm = SettingsViewModel(repo, Direct, debugBuild = true)
         vm.refresh()
         assertFalse(vm.state.value.hasSeedData)
+    }
+
+    // --- 13단계: 연속 달성·배지 ---
+
+    private fun stopAt(atMs: Long) = InterventionRecord(
+        "stop$atMs", null, atMs, InterventionMethod.POPUP, 1, 1, level = 1, outcome = InterventionOutcome.STOPPED, actionAtMs = atMs
+    )
+
+    @Test
+    fun `new badge shows a celebration once and a dot until the showcase is opened`() {
+        repo.interventionList += stopAt(now - 30 * minute)
+        val vm = RewardsViewModel(repo, Direct)
+        vm.refresh()
+        val first = vm.state.value
+        assertTrue(first.hasNew)
+        assertEquals("first_stop", first.celebrate?.id)
+        // 같은 판정 시점에 Lv.1 멈춤·미복귀도 0 이라 첫걸음 하나뿐
+        vm.celebrated()
+        assertNull(vm.state.value.celebrate)
+        assertTrue(repo.rewardStore.badges().single { it.id == "first_stop" }.celebrated)
+        vm.refresh()
+        assertNull(vm.state.value.celebrate)               // 다시 축하하지 않는다
+        assertTrue(vm.state.value.hasNew)
+        vm.seen()
+        assertFalse(vm.state.value.hasNew)
+        vm.refresh()
+        assertFalse(vm.state.value.hasNew)
+    }
+
+    @Test
+    fun `celebration queue goes one by one and preview does not touch the store`() {
+        repo.rewardStore.insertBadge(com.example.shortsdetector.data.rewards.EarnedBadge("steady", 0, 1L))
+        repo.rewardStore.insertBadge(com.example.shortsdetector.data.rewards.EarnedBadge("steady", 1, 2L))
+        val vm = RewardsViewModel(repo, Direct)
+        vm.refresh()
+        assertEquals(0, vm.state.value.celebrate?.tier)
+        vm.celebrated()
+        assertEquals(1, vm.state.value.celebrate?.tier)
+        vm.celebrated()
+        assertNull(vm.state.value.celebrate)
+        vm.preview(com.example.shortsdetector.data.rewards.EarnedBadge("time_rich", 2, 3L))
+        assertEquals("time_rich", vm.state.value.celebrate?.id)
+        vm.celebrated()
+        assertTrue(repo.rewardStore.badges().none { it.id == "time_rich" })
+    }
+
+    @Test
+    fun `showcase lists every badge with streak and progress`() {
+        repo.trackingStartDate = today.minusDays(3)
+        repo.goalList += GoalRules.userGoal(GoalType.DAILY_TOTAL, 30)
+        repo.interventionList += stopAt(now - 10 * minute)
+        val vm = ShowcaseViewModel(repo, Direct)
+        vm.refresh()
+        val s = vm.state.value
+        assertFalse(s.loading)
+        assertEquals(9, s.badges.size)
+        assertEquals(3, s.streak.current)                // 기록이 없는 3일은 하루 30분 이하로 지킴
+        assertTrue(s.badges.first { it.def.id == "first_stop" }.earned)
+        val selfStop = s.badges.first { it.def.id == "self_stop" }
+        assertFalse(selfStop.earned)
+        assertEquals(1, selfStop.value)                  // 오늘 멈춘 1번
+        assertEquals(10, selfStop.nextThreshold)
+        vm.select(selfStop)
+        assertEquals("self_stop", vm.state.value.selected?.def?.id)
+    }
+
+    @Test
+    fun `home shows the streak next to today's goals`() {
+        repo.trackingStartDate = today.minusDays(2)
+        repo.goalList += GoalRules.userGoal(GoalType.DAILY_TOTAL, 30)
+        repo.updateRewards()
+        val vm = HomeViewModel(repo, Direct)
+        vm.refresh()
+        assertEquals(StreakSummary(2, 2), vm.state.value.streak)
+    }
+
+    @Test
+    fun `custom goal handles morning time presets and the valueless type`() {
+        val vm = CustomGoalViewModel(repo)
+        vm.selectType(GoalType.MORNING_START)
+        vm.selectPresetHour(8)
+        assertEquals(480, vm.state.value.value)
+        vm.save()
+        assertEquals("오전 8:00 전에는 보지 않기", repo.goalList.single().label)
+
+        vm.selectType(GoalType.TIME_WINDOW)
+        vm.selectPresetHour(24)                           // 자정 = 이어지는 분 1440
+        assertEquals(24 * 60, vm.state.value.value)
+        assertTrue(vm.state.value.isValid)
+
+        vm.selectType(GoalType.NO_MAX_LEVEL)
+        assertTrue(vm.state.value.isValid)
+        vm.save()
+        assertEquals(1, repo.goalList.first { it.type == GoalType.NO_MAX_LEVEL }.value)
     }
 }

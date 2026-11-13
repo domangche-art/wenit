@@ -1,5 +1,14 @@
 package com.example.shortsdetector.data.usage
 
+import com.example.shortsdetector.data.goal.Goal
+import com.example.shortsdetector.data.goal.GoalRules
+import com.example.shortsdetector.data.goal.GoalType
+import com.example.shortsdetector.data.rewards.BadgeEngine
+import com.example.shortsdetector.data.rewards.BadgeTotals
+import com.example.shortsdetector.data.rewards.DayResult
+import com.example.shortsdetector.data.rewards.EarnedBadge
+import com.example.shortsdetector.data.rewards.InMemoryRewardStore
+import com.example.shortsdetector.data.rewards.RewardsUpdater
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -15,7 +24,33 @@ object DemoSeedData {
 
     enum class Scenario { LATE_NIGHT_SKIPPER, EASY_STOPPER }
 
-    data class Batch(val sessions: List<SessionRecord>, val interventions: List<InterventionRecord>)
+    /**
+     * @param dayResults 예시 연속 기록(1~14일 전). 시드 기록을 [seedGoals] 로 실제와 같은 규칙으로 판정해 만든다.
+     * @param badges 예시 배지. 위 행을 날짜순으로 쌓아 기준을 넘은 날 저녁에 얻은 것으로 둔다. 축하·알림·새 배지 표시는 하지 않는다.
+     */
+    data class Batch(
+        val sessions: List<SessionRecord>,
+        val interventions: List<InterventionRecord>,
+        val dayResults: List<DayResult> = emptyList(),
+        val badges: List<EarnedBadge> = emptyList()
+    )
+
+    /** 예시 연속 기록을 만들 때 쓰는 목표. 사용자의 실제 목표는 바꾸지 않는다. */
+    fun seedGoals(scenario: Scenario): List<Goal> = when (scenario) {
+        Scenario.LATE_NIGHT_SKIPPER -> listOf(
+            GoalRules.userGoal(GoalType.DAILY_TOTAL, 40),
+            GoalRules.userGoal(GoalType.TIME_WINDOW, GoalRules.timeWindowValue(23, 0))
+        )
+        Scenario.EASY_STOPPER -> listOf(
+            GoalRules.userGoal(GoalType.DAILY_TOTAL, 20),
+            GoalRules.userGoal(GoalType.SELF_STOPS, 1)
+        )
+    }
+
+    /** 예시 아낀 시간 기준값(하루 45분) */
+    private const val SEED_BASELINE_MS = 45 * 60_000L
+    private const val SEED_DAYS = 14L
+    private const val BADGE_HOUR = 21
 
     private const val PACKAGE = "com.google.android.youtube"
     private const val THRESHOLD_MS = 180_000L
@@ -135,8 +170,43 @@ object DemoSeedData {
                 )
             }
         }
-        return Batch(sessions, interventions)
+        val days = seedDays(scenario, sessions, interventions, today, zone, nowMs)
+        return Batch(sessions, interventions, days, seedBadges(days, zone))
     }
+
+    /** 시드 기록을 실제 기록처럼 넣은 메모리 저장소에서 실제와 같은 하루 판정을 돌리고, 결과에 시드 표시를 붙인다. */
+    private fun seedDays(
+        scenario: Scenario,
+        sessions: List<SessionRecord>,
+        interventions: List<InterventionRecord>,
+        today: LocalDate,
+        zone: ZoneId,
+        nowMs: Long
+    ): List<DayResult> {
+        val store = InMemoryUsageStore()
+        sessions.forEach { store.upsertSession(it.copy(isSeed = false)) }
+        interventions.forEach { store.insertIntervention(it.copy(isSeed = false)) }
+        val updater = RewardsUpdater(store, InMemoryRewardStore(), zone)
+        val first = today.minusDays(SEED_DAYS)
+        return (SEED_DAYS downTo 1L).map { ago ->
+            updater.closeDay(today.minusDays(ago), nowMs, seedGoals(scenario), MAX_LEVEL, SEED_BASELINE_MS, first)
+                .copy(isSeed = true)
+        }
+    }
+
+    /** 날짜순으로 쌓으며 등급 기준을 처음 넘은 날 [BADGE_HOUR] 시에 얻은 것으로 둔다. */
+    private fun seedBadges(days: List<DayResult>, zone: ZoneId): List<EarnedBadge> {
+        val out = ArrayList<EarnedBadge>()
+        days.indices.forEach { i ->
+            val at = days[i].date.atTime(BADGE_HOUR, 0).atZone(zone).toInstant().toEpochMilli()
+            val earned = out.map { it.id to it.tier }.toSet()
+            out += BadgeEngine.newlyEarned(BadgeTotals.fromDays(days.take(i + 1)), earned, at)
+                .map { it.copy(isSeed = true, seen = true, celebrated = true, notified = true) }
+        }
+        return out
+    }
+
+    private const val MAX_LEVEL = 3
 
     private const val EndReason = "EXIT_CONFIRMED"
 }

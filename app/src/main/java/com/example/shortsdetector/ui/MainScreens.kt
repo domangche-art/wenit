@@ -34,6 +34,9 @@ import com.example.shortsdetector.BuildConfig
 import com.example.shortsdetector.DetectionConfig
 import com.example.shortsdetector.R
 import com.example.shortsdetector.ai.agent.AgentPolicyRules
+import com.example.shortsdetector.data.goal.GoalPeriod
+import com.example.shortsdetector.data.rewards.BadgeCatalog
+import com.example.shortsdetector.data.rewards.EarnedBadge
 import com.example.shortsdetector.data.stats.DailyWatch
 import com.example.shortsdetector.data.stats.WeekStats
 import com.example.shortsdetector.data.usage.DemoSeedData
@@ -88,10 +91,16 @@ fun HomeScreen(vm: HomeViewModel, stoppedAtMs: Long?, onStoppedShown: () -> Unit
         }
         if (s.goals.isNotEmpty()) {
             WenitCard {
-                Text(stringResource(R.string.home_goals), style = MaterialTheme.typography.titleMedium)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.home_goals), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Caption(stringResource(R.string.home_streak, s.streak.current))
+                }
                 s.goals.forEach {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(it.goal.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+                            Text(it.goal.label, style = MaterialTheme.typography.bodyLarge)
+                            if (it.goal.type.period == GoalPeriod.WEEKLY) Caption(stringResource(R.string.goal_period_weekly))
+                        }
                         StatusBadge(it.status)
                     }
                 }
@@ -338,7 +347,12 @@ fun ConfirmDialog(title: String, body: String, confirm: String, onDismiss: () ->
 // --- i. 개발자 화면 ---
 
 @Composable
-fun DeveloperScreen(vm: DeveloperViewModel, onBack: () -> Unit, onRestarted: () -> Unit) {
+fun DeveloperScreen(
+    vm: DeveloperViewModel,
+    onBack: () -> Unit,
+    onPreviewCelebration: (EarnedBadge) -> Unit,
+    onRestarted: () -> Unit
+) {
     val s by vm.state.collectAsState()
     var confirmReset by remember { mutableStateOf(false) }
     var confirmRestart by remember { mutableStateOf(false) }
@@ -364,6 +378,13 @@ fun DeveloperScreen(vm: DeveloperViewModel, onBack: () -> Unit, onRestarted: () 
         SecondaryButton(stringResource(R.string.button_seed_a), enabled = !s.working) { vm.seed(DemoSeedData.Scenario.LATE_NIGHT_SKIPPER) }
         SecondaryButton(stringResource(R.string.button_seed_b), enabled = !s.working) { vm.seed(DemoSeedData.Scenario.EASY_STOPPER) }
         s.seeded?.let { Caption(stringResource(R.string.dev_seed_done, it)) }
+
+        SectionTitle(stringResource(R.string.dev_rewards))
+        SecondaryButton(stringResource(R.string.dev_celebrate_preview)) {
+            onPreviewCelebration(EarnedBadge(BadgeCatalog.ALL[2].id, 1, System.currentTimeMillis()))
+        }
+        SecondaryButton(stringResource(R.string.dev_badge_notification), enabled = !s.working, onClick = vm::testBadgeNotification)
+        s.badgeNotified?.let { Caption(stringResource(if (it) R.string.dev_badge_notified else R.string.dev_badge_not_notified)) }
 
         SecondaryButton(stringResource(R.string.button_goal_eval), enabled = !s.working, onClick = vm::runGoalEval)
         s.evalRows?.let { Caption(stringResource(R.string.ai_goal_eval_done, it)) }

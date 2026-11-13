@@ -2,6 +2,9 @@ package com.example.shortsdetector.data.stats
 
 import com.example.shortsdetector.data.goal.Goal
 import com.example.shortsdetector.data.profile.UserProfile
+import com.example.shortsdetector.data.rewards.DayResult
+import com.example.shortsdetector.data.rewards.StreakCalculator
+import java.time.LocalDate
 import com.example.shortsdetector.data.usage.InterventionRecord
 import com.example.shortsdetector.data.usage.PolicyChangeRecord
 import com.example.shortsdetector.data.usage.SessionRecord
@@ -26,8 +29,39 @@ data class AgentInput(
     /** 새것부터, 최대 [AgentInputBuilder.RECENT_CHANGES] 건 */
     val recentPolicyChanges: List<PolicyChangeRecord>,
     /** 입력에 발표용 시드가 섞였다. 앱 안에서만 쓰고 외부로 보내지 않는다. */
-    val usedSeedData: Boolean = false
+    val usedSeedData: Boolean = false,
+    /** 최근 7일 목표 달성률과 연속 달성(13단계). 끝난 날 판정 행에서 센 집계값이다. */
+    val goalAchievement: GoalAchievementSummary = GoalAchievementSummary.EMPTY
 )
+
+/**
+ * @param judgedDays 최근 7일(어제까지) 중 하루 목표가 있던 날
+ * @param achievedDays 그중 하루 목표를 모두 지킨 날
+ * @param achievementRate achievedDays / judgedDays. 판정한 날이 없으면 null.
+ */
+data class GoalAchievementSummary(
+    val judgedDays: Int,
+    val achievedDays: Int,
+    val achievementRate: Double?,
+    val currentStreak: Int,
+    val bestStreak: Int
+) {
+    companion object {
+        val EMPTY = GoalAchievementSummary(0, 0, null, 0, 0)
+        const val DAYS = 7L
+
+        /** @param rows 화면과 같은 행(시드가 있으면 시드 행 우선, [StreakCalculator.mergedForDisplay]) */
+        fun of(rows: List<DayResult>, today: LocalDate): GoalAchievementSummary {
+            val recent = rows.filter { !it.date.isBefore(today.minusDays(DAYS)) && it.date.isBefore(today) && it.achievedDay != null }
+            val achieved = recent.count { it.achievedDay == true }
+            val streak = StreakCalculator.of(rows)
+            return GoalAchievementSummary(
+                recent.size, achieved, if (recent.isEmpty()) null else achieved.toDouble() / recent.size,
+                streak.current, streak.best
+            )
+        }
+    }
+}
 
 object AgentInputBuilder {
 
@@ -42,16 +76,21 @@ object AgentInputBuilder {
         interventions: List<InterventionRecord>,
         recentPolicyChanges: List<PolicyChangeRecord>,
         zone: ZoneId,
-        nowMs: Long
+        nowMs: Long,
+        dayResults: List<DayResult> = emptyList()
     ) = AgentInput(
         generatedAtMs = nowMs,
         profile = profile,
         goals = goals,
         policy = policy,
-        today = UsageStatsCalculator.today(sessions, interventions, goals, zone, nowMs),
+        today = UsageStatsCalculator.today(sessions, interventions, goals, zone, nowMs, maxLevel = policy.maxLevel),
         week = UsageStatsCalculator.week(sessions, interventions, zone, nowMs),
         recent = UsageStatsCalculator.recent(sessions, interventions, zone, nowMs),
         recentPolicyChanges = recentPolicyChanges.filterNot { it.isDemo }.take(RECENT_CHANGES),
-        usedSeedData = sessions.any { it.isSeed } || interventions.any { it.isSeed }
+        usedSeedData = sessions.any { it.isSeed } || interventions.any { it.isSeed } || dayResults.any { it.isSeed },
+        goalAchievement = GoalAchievementSummary.of(
+            StreakCalculator.mergedForDisplay(dayResults),
+            com.example.shortsdetector.data.usage.DailyUsageCalculator.dateOf(nowMs, zone)
+        )
     )
 }

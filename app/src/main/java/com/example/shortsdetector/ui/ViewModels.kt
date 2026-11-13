@@ -21,6 +21,10 @@ import com.example.shortsdetector.data.stats.SavedTimeCalculator
 import com.example.shortsdetector.data.stats.UsageStatsCalculator
 import com.example.shortsdetector.data.stats.WeekStats
 import com.example.shortsdetector.data.usage.DailyUsageCalculator
+import com.example.shortsdetector.data.rewards.BadgeProgress
+import com.example.shortsdetector.data.rewards.BadgeTotals
+import com.example.shortsdetector.data.rewards.EarnedBadge
+import com.example.shortsdetector.data.rewards.StreakCalculator
 import com.example.shortsdetector.data.usage.DemoSeedData
 import com.example.shortsdetector.data.usage.InterventionMethod
 import com.example.shortsdetector.data.usage.InterventionRecord
@@ -192,13 +196,17 @@ data class CustomGoalState(
     val saved: Boolean = false
 ) {
     val value: Int?
-        get() = when (type) {
-            null -> null
-            GoalType.TIME_WINDOW -> {
+        get() = when {
+            type == null -> null
+            !GoalRules.hasValue(type) -> GoalRules.rangeOf(type).first
+            GoalRules.isTimeOfDay(type) -> {
                 val h = hour.toIntOrNull()
                 val m = minute.toIntOrNull()
-                if (h == null || m == null || h !in 0..23 || m !in 0..59) null
-                else h * 60 + m + if (h < EARLY_MORNING_END) 24 * 60 else 0
+                when {
+                    h == null || m == null || h !in 0..23 || m !in 0..59 -> null
+                    type == GoalType.TIME_WINDOW -> h * 60 + m + if (h < EARLY_MORNING_END) 24 * 60 else 0
+                    else -> h * 60 + m
+                }
             }
             else -> number.toIntOrNull()
         }
@@ -217,6 +225,9 @@ class CustomGoalViewModel(private val repo: AppRepository) : StateViewModel<Cust
     fun setHour(text: String) = set { it.copy(hour = text.filter(Char::isDigit).take(2), full = false) }
     fun setMinute(text: String) = set { it.copy(minute = text.filter(Char::isDigit).take(2), full = false) }
 
+    /** 취침 전·아침 프리셋. 24시는 자정(0시)이다. */
+    fun selectPresetHour(hour: Int) = set { it.copy(hour = (hour % 24).toString(), minute = "00", full = false) }
+
     fun save() {
         val s = current
         val type = s.type ?: return
@@ -231,6 +242,9 @@ class CustomGoalViewModel(private val repo: AppRepository) : StateViewModel<Cust
 
 data class YesterdaySummary(val achieved: Int, val total: Int)
 
+/** 홈의 작은 연속 달성 표시. 시드가 있으면 시드 기록으로 보여 준다(진열장과 같다). */
+data class StreakSummary(val current: Int, val best: Int)
+
 data class HomeState(
     val loading: Boolean = true,
     val permissions: PermissionStatus = PermissionStatus(false, false, false),
@@ -243,7 +257,8 @@ data class HomeState(
     val yesterday: YesterdaySummary? = null,
     val savedTime: SavedTime? = null,
     /** 개입 팝업에서 멈추고 넘어왔을 때의 시청시간. 닫기, 날짜 변경, 새 세션 시작 때 사라진다. */
-    val stoppedAtMs: Long? = null
+    val stoppedAtMs: Long? = null,
+    val streak: StreakSummary = StreakSummary(0, 0)
 )
 
 class HomeViewModel(private val repo: AppRepository, private val tasks: TaskRunner) :
@@ -286,14 +301,21 @@ class HomeViewModel(private val repo: AppRepository, private val tasks: TaskRunn
         val interventions = repo.interventions(window.fromMs, window.toMs)
         val goals = repo.goals()
         val resolved = repo.resolvedPolicy()
+        val countFrom = repo.trackingStart()
         // 시연 모드에서는 지금 보는 기록이 시연 기록이다. 빼면 쇼츠를 봐도 0초로 보인다. 저장·통계·에이전트 입력은 그대로 뺀다.
-        val today = UsageStatsCalculator.today(sessions, interventions, goals, zone, now, includeDemo = resolved.demoMode)
+        val today = UsageStatsCalculator.today(
+            sessions, interventions, goals, zone, now, includeDemo = resolved.demoMode,
+            maxLevel = resolved.policy.maxLevel, countFrom = countFrom
+        )
+        val streak = StreakCalculator.of(StreakCalculator.mergedForDisplay(repo.dayResults()))
         val hasRecords = sessions.any { !it.isDemo }
         val hadEarlier = sessions.any { !it.isDemo && it.startedAtMs < startOfToday(now) }
         val yesterday = if (goals.isEmpty() || !hadEarlier) {
             null
         } else {
-            val r = UsageStatsCalculator.yesterday(sessions, interventions, goals, zone, now)
+            val r = UsageStatsCalculator.yesterday(
+                sessions, interventions, goals, zone, now, maxLevel = resolved.policy.maxLevel, countFrom = countFrom
+            )
             YesterdaySummary(r.goals.count { it.status == GoalStatus.ACHIEVED }, r.goals.size)
         }
         return HomeState(
@@ -309,7 +331,8 @@ class HomeViewModel(private val repo: AppRepository, private val tasks: TaskRunn
             // 아직 보지 않은 날에 평소 시간 전부를 "아꼈다" 고 말하지 않는다.
             savedTime = if (!hasRecords) null else SavedTimeCalculator.estimate(
                 repo.firstWeekAverageMs(), repo.profile()?.usualDailyWatch, today.estimatedWatchMs
-            )
+            ),
+            streak = StreakSummary(streak.current, streak.best)
         )
     }
 
@@ -508,7 +531,8 @@ data class DeveloperState(
     val seeded: Int? = null,
     val evalRows: Int? = null,
     val resetDone: Boolean = false,
-    val restarted: Boolean = false
+    val restarted: Boolean = false,
+    val badgeNotified: Boolean? = null
 )
 
 class DeveloperViewModel(private val repo: AppRepository, private val tasks: TaskRunner) :
@@ -544,6 +568,8 @@ class DeveloperViewModel(private val repo: AppRepository, private val tasks: Tas
 
     fun runGoalEval() = work({ repo.runGoalEval() }) { n -> set { it.copy(evalRows = n) } }
 
+    fun testBadgeNotification() = work({ repo.testBadgeNotification() }) { ok -> set { it.copy(badgeNotified = ok) } }
+
     fun resetForDemo() = work({ repo.resetForDemo() }) {
         set { it.copy(resetDone = true) }
         refresh()
@@ -558,6 +584,108 @@ class DeveloperViewModel(private val repo: AppRepository, private val tasks: Tas
             set { it.copy(working = false) }
             done(r)
         }
+    }
+}
+
+// --- j. 연속 달성·배지(13단계) ---
+
+/**
+ * 앱 전체에서 하나. 진열장 탭의 새 배지 점과 축하 화면 대기열.
+ * @param celebrate 지금 보여 줄 축하. 아직 축하하지 않은 실제 배지를 얻은 순서대로 하나씩.
+ */
+data class RewardsState(
+    val hasNew: Boolean = false,
+    val celebrate: EarnedBadge? = null,
+    val queue: List<EarnedBadge> = emptyList()
+)
+
+class RewardsViewModel(private val repo: AppRepository, private val tasks: TaskRunner) :
+    StateViewModel<RewardsState>(RewardsState()) {
+
+    /** 앱이 보일 때마다: 끝난 날·배지를 판정하고 축하할 배지를 모은다. 앱 화면이 보이는 동안은 쇼츠를 보는 중이 아니다. */
+    fun refresh() {
+        tasks.run(work = {
+            repo.updateRewards()
+            repo.badges().filterNot { it.isSeed }
+        }) { badges -> apply(badges) }
+    }
+
+    private fun apply(badges: List<EarnedBadge>) {
+        val waiting = badges.filter { !it.celebrated }.sortedWith(compareBy({ it.earnedAtMs }, { it.tier }))
+        set { s ->
+            val showing = s.celebrate
+            val rest = waiting.filterNot { w -> showing != null && w.id == showing.id && w.tier == showing.tier }
+            s.copy(
+                hasNew = badges.any { !it.seen },
+                celebrate = showing ?: rest.firstOrNull(),
+                queue = if (showing == null) rest.drop(1) else rest
+            )
+        }
+    }
+
+    /** 축하 화면을 닫았다. 다음 배지가 있으면 이어서 보여 준다. */
+    fun celebrated() {
+        val c = current.celebrate ?: return
+        set { it.copy(celebrate = it.queue.firstOrNull(), queue = it.queue.drop(1)) }
+        if (!c.isSeed) tasks.run(work = { repo.markBadgeCelebrated(c.id, c.tier) }) {}
+    }
+
+    /** 진열장을 열었다: 점을 지운다. */
+    fun seen() {
+        set { it.copy(hasNew = false) }
+        tasks.run(work = { repo.markBadgesSeen() }) {}
+    }
+
+    /** 개발자 화면: 축하 화면 미리보기. 저장하지 않는 시드 표시 배지라 닫아도 DB 를 바꾸지 않는다. */
+    fun preview(badge: EarnedBadge) = set { it.copy(celebrate = badge.copy(isSeed = true), queue = listOfNotNull(it.celebrate) + it.queue) }
+}
+
+data class ShowcaseState(
+    val loading: Boolean = true,
+    val streak: StreakSummary = StreakSummary(0, 0),
+    val badges: List<BadgeProgress> = emptyList(),
+    val usesSeed: Boolean = false,
+    val selected: BadgeProgress? = null
+)
+
+class ShowcaseViewModel(private val repo: AppRepository, private val tasks: TaskRunner) :
+    StateViewModel<ShowcaseState>(ShowcaseState()) {
+
+    fun refresh() {
+        tasks.run(work = { load() }, failed = { set { it.copy(loading = false) } }) { loaded ->
+            set { loaded.copy(selected = it.selected?.let { s -> loaded.badges.firstOrNull { b -> b.def.id == s.def.id } }) }
+        }
+    }
+
+    fun select(badge: BadgeProgress?) = set { it.copy(selected = badge) }
+
+    private fun load(): ShowcaseState {
+        repo.updateRewards()
+        val rows = repo.dayResults()
+        val display = StreakCalculator.mergedForDisplay(rows)
+        val streak = StreakCalculator.of(display)
+        val badges = repo.badges()
+        val totals = BadgeTotals.fromDays(display) + todayTotals()
+        return ShowcaseState(
+            loading = false,
+            streak = StreakSummary(streak.current, streak.best),
+            badges = BadgeProgress.of(badges, totals),
+            usesSeed = rows.any { it.isSeed } || badges.any { it.isSeed }
+        )
+    }
+
+    /** 오늘 지금까지의 누적값(멈춤·Lv.1 멈춤·30분 미복귀). 하루가 끝나야 아는 값은 넣지 않는다. 시연·시드 기록은 뺀다. */
+    private fun todayTotals(): BadgeTotals {
+        val zone = repo.zone()
+        val now = repo.nowMs()
+        val date = DailyUsageCalculator.dateOf(now, zone)
+        if (date.isBefore(repo.trackingStart())) return BadgeTotals()
+        val from = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val to = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val sessions = repo.sessions(from, to).filterNot { it.isDemo || it.isSeed }
+        val interventions = repo.interventions(from, to).filterNot { it.isDemo || it.isSeed }
+        val m = UsageStatsCalculator.dayMetrics(sessions, interventions, emptyList(), zone, date, now, repo.savedPolicy().maxLevel)
+        return BadgeTotals(stops = m.selfStopCount, lv1Stops = m.lv1StopCount, noReturnStops = m.noReturnStopCount)
     }
 }
 
@@ -579,6 +707,8 @@ class WenitViewModelFactory(
         RecordsViewModel::class.java -> RecordsViewModel(repo, tasks)
         SettingsViewModel::class.java -> SettingsViewModel(repo, tasks, debugBuild)
         DeveloperViewModel::class.java -> DeveloperViewModel(repo, tasks)
+        RewardsViewModel::class.java -> RewardsViewModel(repo, tasks)
+        ShowcaseViewModel::class.java -> ShowcaseViewModel(repo, tasks)
         else -> error("unknown ViewModel")
     } as T
 }

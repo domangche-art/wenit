@@ -77,10 +77,18 @@ class AiGoalRecommender(
 
         /** 하루 총량 목표가 평소 시청 시간 이상이면 줄이는 목표가 아니므로 평소값의 80%(5분 단위)로 보정한다. */
         internal fun belowUsual(goal: Goal, usual: UsualDailyWatch?): Goal {
-            if (goal.type != GoalType.DAILY_TOTAL || usual == null || goal.value < usual.estimateMinutes) return goal
-            val adjusted = GoalRules.clampValue(GoalType.DAILY_TOTAL, roundToFive(usual.estimateMinutes * 80 / 100.0))
-            return goal.copy(value = adjusted, label = GoalRules.defaultLabel(GoalType.DAILY_TOTAL, adjusted))
+            if (usual == null) return goal
+            val usualMinutes = when (goal.type) {
+                GoalType.DAILY_TOTAL -> usual.estimateMinutes
+                GoalType.WEEKLY_TOTAL -> usual.estimateMinutes * DAYS_PER_WEEK
+                else -> return goal
+            }
+            if (goal.value < usualMinutes) return goal
+            val adjusted = GoalRules.clampValue(goal.type, roundToFive(usualMinutes * 80 / 100.0))
+            return goal.copy(value = adjusted, label = GoalRules.defaultLabel(goal.type, adjusted))
         }
+
+        private const val DAYS_PER_WEEK = 7
 
         private fun roundToFive(minutes: Double): Int = (Math.round(minutes / 5.0) * 5).toInt()
 
@@ -153,8 +161,16 @@ class AiGoalRecommender(
               - TIME_WINDOW: 이 시각 이후 시청 안 함. 값은 자정을 넘겨 이어지는 분입니다. 23:00 은 1380, 새벽 1:00 은 1500 (${range(GoalType.TIME_WINDOW)})
               - DAILY_OPENS: 하루 시청 세션 수 이하 (${range(GoalType.DAILY_OPENS)})
               - SELF_STOPS: 하루 스스로 멈춘 횟수 이상 (${range(GoalType.SELF_STOPS)})
+              - WEEKLY_TOTAL: 이번 주(월~일) 총 시청 분 이하 (${range(GoalType.WEEKLY_TOTAL)})
+              - WEEKLY_REDUCTION: 지난주보다 N% 이상 줄이기. 지난주 기록(week.dailyWatchMs, recent.dailyWatchMs)이 없으면 쓰지 않습니다 (${range(GoalType.WEEKLY_REDUCTION)})
+              - MORNING_START: 아침 5시부터 이 시각 전까지 시청 안 함. 값은 0시부터의 분입니다. 8:00 은 480 (${range(GoalType.MORNING_START)})
+              - NO_RETURN_30M: 스스로 멈춘 뒤 30분 동안 다시 켜지 않은 횟수가 하루 N번 이상 (${range(GoalType.NO_RETURN_30M)})
+              - LV1_STOPS: 첫 알림(Lv.1)에서 바로 멈춘 횟수가 하루 N번 이상 (${range(GoalType.LV1_STOPS)})
+              - NO_MAX_LEVEL: 그날 마지막 단계 개입까지 가지 않기. value 는 항상 1 (${range(GoalType.NO_MAX_LEVEL)})
+              - SHORTS_FREE_DAYS: 이번 주 쇼츠를 아예 안 본 날 N일 이상 (${range(GoalType.SHORTS_FREE_DAYS)})
+            - 밤 시청이 많으면 TIME_WINDOW, 아침 시청이 많으면 MORNING_START, 멈춘 뒤 금방 돌아오면(behavior.returnAfterStop) NO_RETURN_30M 을 고려합니다.
             - 지나치게 엄격한 목표를 내지 않습니다. 첫 목표는 부담 없게 잡습니다.
-            - DAILY_TOTAL 은 설문의 평소 시청 시간(usualDailyWatchMinutes)보다 15~40% 낮게 잡습니다.
+            - DAILY_TOTAL 은 설문의 평소 시청 시간(usualDailyWatchMinutes)보다 15~40% 낮게 잡습니다. WEEKLY_TOTAL 은 그 7배를 기준으로 같은 만큼 낮게 잡습니다.
             - label 은 한국어 ${MAX_LABEL_LENGTH}자 이내로, 화면에 보여 줄 목표 문구입니다.
             - label 의 숫자는 value 와 정확히 같아야 합니다. 110분을 "2시간"으로 어림하지 않고 "110분"이라고 씁니다.
             - reason 은 설문 응답을 근거로 왜 이 목표인지 쓴 25자 안팎의 한 문장입니다. ${MAX_REASON_LENGTH}자를 넘기지 않습니다.

@@ -36,6 +36,19 @@ object WenitTokens {
     val ChartHeight = 140.dp
     val ChartBarRadius = 6.dp
     val ProgressHeight = 6.dp
+
+    // 배지(13단계). 등급 고리 색은 밝은·어두운 테마에서 같다(금속 색).
+    val BadgeBronze = Color(0xFFB0703A)
+    val BadgeSilver = Color(0xFF9EA7B3)
+    val BadgeGold = Color(0xFFE2B33C)
+    val BadgeLocked = Color(0xFF8A8A8F)
+    val BadgeSize = 88.dp
+    val BadgeRing = 5.dp
+    val BadgeCelebrateSize = 200.dp
+    val TierMarkSize = 22.dp
+    val TierMarkBorder = 1.5.dp
+    val TierMarkTextInset = 2.dp
+    val NewDotSize = 10.dp
 }
 
 private val LightColors = lightColorScheme(

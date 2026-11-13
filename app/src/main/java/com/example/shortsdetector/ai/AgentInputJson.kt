@@ -3,6 +3,7 @@ package com.example.shortsdetector.ai
 import com.example.shortsdetector.data.goal.Goal
 import com.example.shortsdetector.data.goal.GoalType
 import com.example.shortsdetector.data.stats.AgentInput
+import com.example.shortsdetector.data.stats.GoalAchievementSummary
 import com.example.shortsdetector.data.stats.InterventionBehavior
 import com.example.shortsdetector.data.stats.RecentUsageStats
 import org.json.JSONArray
@@ -53,6 +54,18 @@ object AgentInputJson {
         )
         root.put("recent", recent(input.recent))
         root.put("behavior", behavior(input.recent.behavior))
+        root.put(
+            "goalAchievement",
+            input.goalAchievement.let {
+                JSONObject()
+                    .put("days", GoalAchievementSummary.DAYS)
+                    .put("judgedDays", it.judgedDays)
+                    .put("achievedDays", it.achievedDays)
+                    .putRate("achievementRate", it.achievementRate)
+                    .put("currentStreakDays", it.currentStreak)
+                    .put("bestStreakDays", it.bestStreak)
+            }
+        )
         root.put(
             "recentPolicyChanges",
             JSONArray().apply {
