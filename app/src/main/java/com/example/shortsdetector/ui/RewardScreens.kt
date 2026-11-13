@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,6 +54,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.shortsdetector.R
+import com.example.shortsdetector.data.rewards.BadgeArtResolver
+import com.example.shortsdetector.data.rewards.BadgeArtSpec
 import com.example.shortsdetector.data.rewards.BadgeCatalog
 import com.example.shortsdetector.data.rewards.BadgeDef
 import com.example.shortsdetector.data.rewards.BadgeProgress
@@ -63,64 +67,104 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * 배지 그림 연결. drawable-nodpi 에 `badge_<배지 id>` 파일(예: badge_steady.webp)을 넣으면 그 배지만 그 그림을 쓴다.
- * 없으면 공통 그림([R.drawable.badge_common], 디자인 팀 시험 그림)을 쓴다. 코드를 바꿀 필요가 없다.
- * 등급은 그림 바깥 고리 색과 작은 등급 표시로 그리므로 그림 파일에는 등급을 넣지 않는다.
+ * 배지 그림 연결. 고르는 규칙은 [BadgeArtResolver](배지·등급 전용 → 배지 전용 → 틀+기호 합성 → 공통).
+ * 파일만 넣으면 바뀌게 하려고 리소스를 이름으로 찾는다. 리소스 축소 시 res/raw/keep_badges.xml 로 남긴다.
  */
 object BadgeArt {
-    private val cache = HashMap<String, Int>()
+    private val ids = HashMap<String, Int>()
 
-    @SuppressLint("DiscouragedApi") // 파일만 넣으면 바뀌게 하려고 이름으로 찾는다. 축소 시 res/raw/keep_badges.xml 로 남긴다.
+    @SuppressLint("DiscouragedApi")
     @DrawableRes
-    fun of(context: Context, id: String): Int = cache.getOrPut(id) {
-        context.resources.getIdentifier("badge_$id", "drawable", context.packageName).takeIf { it != 0 } ?: R.drawable.badge_common
+    fun idOf(context: Context, name: String): Int = ids.getOrPut(name) {
+        context.resources.getIdentifier(name, "drawable", context.packageName)
     }
+
+    fun spec(context: Context, id: String, tier: Int): BadgeArtSpec =
+        BadgeArtResolver.resolve(id, tier) { idOf(context, it) != 0 }
 }
 
-fun tierColor(tierIndex: Int): Color = when (tierIndex) {
-    0 -> WenitTokens.BadgeBronze
-    1 -> WenitTokens.BadgeSilver
-    2 -> WenitTokens.BadgeGold
-    else -> WenitTokens.BadgeLocked
+/** 등급 색. 등급 없는 배지는 [untieredColor]. */
+fun tierColor(tierIndex: Int): Color = when (BadgeTier.entries.getOrNull(tierIndex)) {
+    BadgeTier.BRONZE -> WenitTokens.BadgeBronze
+    BadgeTier.SILVER -> WenitTokens.BadgeSilver
+    BadgeTier.GOLD -> WenitTokens.BadgeGold
+    BadgeTier.DIAMOND -> WenitTokens.BadgeDiamond
+    BadgeTier.MASTER -> WenitTokens.BadgeMaster
+    null -> WenitTokens.BadgeLocked
 }
+
+val untieredColor: Color get() = WenitTokens.BadgeUntiered
 
 fun tierNameRes(tierIndex: Int) = when (BadgeTier.entries.getOrNull(tierIndex)) {
     BadgeTier.SILVER -> R.string.badge_tier_silver
     BadgeTier.GOLD -> R.string.badge_tier_gold
+    BadgeTier.DIAMOND -> R.string.badge_tier_diamond
+    BadgeTier.MASTER -> R.string.badge_tier_master
     else -> R.string.badge_tier_bronze
 }
 
-private fun tierMarkRes(tierIndex: Int) = when (tierIndex) {
-    1 -> R.string.badge_tier_mark_silver
-    2 -> R.string.badge_tier_mark_gold
+private fun tierMarkRes(tierIndex: Int) = when (BadgeTier.entries.getOrNull(tierIndex)) {
+    BadgeTier.SILVER -> R.string.badge_tier_mark_silver
+    BadgeTier.GOLD -> R.string.badge_tier_mark_gold
+    BadgeTier.DIAMOND -> R.string.badge_tier_mark_diamond
+    BadgeTier.MASTER -> R.string.badge_tier_mark_master
     else -> R.string.badge_tier_mark_bronze
 }
 
 private val GRAYSCALE = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
 private const val LOCKED_ALPHA = 0.4f
+private const val SYMBOL_SCALE = 0.56f
 
 /**
- * 배지 하나. 등급 색 고리 안에 그림, 오른쪽 아래에 작은 등급 표시.
- * 못 얻은 배지([tierIndex] < 0)는 같은 그림을 흑백·반투명으로 그리고 자물쇠를 얹는다.
+ * 배지 한 칸.
+ * @param tier 그릴 등급(0~4). 못 얻었으면 보여 줄 등급(보통 다음 등급)
+ * @param earned 얻었으면 색, 못 얻었으면 같은 그림을 흑백·반투명으로
+ * @param showLock 못 얻은 배지에 자물쇠를 얹는다(상세의 등급 줄에서는 끈다)
+ * @param showMark 얻은 등급 표시(B/S/G/D/M). 등급 이름이 따로 보이는 상세의 등급 줄에서는 끈다
+ *
+ * 공통 그림은 등급 색 고리 안에 둥글게 자른다. 배지·등급 전용 그림과 틀+기호 합성은 모양이 등급을 나타내므로 고리 없이 그린다.
+ * 등급 있는 배지를 얻었으면 오른쪽 아래에 작은 등급 표시(B/S/G/D/M)를 붙인다.
  */
 @Composable
-fun BadgeMedal(id: String, tierIndex: Int, size: Dp = WenitTokens.BadgeSize, modifier: Modifier = Modifier) {
+fun BadgeMedal(
+    id: String,
+    tier: Int,
+    earned: Boolean,
+    size: Dp = WenitTokens.BadgeSize,
+    modifier: Modifier = Modifier,
+    showLock: Boolean = !earned,
+    showMark: Boolean = true
+) {
     val context = LocalContext.current
-    val locked = tierIndex < 0
-    val name = BadgeCatalog.byId(id)?.name.orEmpty()
+    val def = BadgeCatalog.byId(id)
+    val tiered = def?.tiered == true
+    val t = if (tiered) tier.coerceIn(0, BadgeTier.entries.lastIndex) else 0
+    val spec = remember(id, t) { BadgeArt.spec(context, id, t) }
+    val filter = if (earned) null else GRAYSCALE
+    val fade = Modifier.alpha(if (earned) 1f else LOCKED_ALPHA)
+    val description = stringResource(R.string.badge_image_description, def?.name.orEmpty())
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
-        Image(
-            painterResource(BadgeArt.of(context, id)),
-            contentDescription = stringResource(R.string.badge_image_description, name),
-            colorFilter = if (locked) GRAYSCALE else null,
-            modifier = Modifier
-                .fillMaxSize()
-                .border(WenitTokens.BadgeRing, tierColor(tierIndex), CircleShape)
-                .padding(WenitTokens.BadgeRing)
-                .clip(CircleShape)
-                .alpha(if (locked) LOCKED_ALPHA else 1f)
-        )
-        if (locked) {
+        when (spec) {
+            is BadgeArtSpec.Image -> Image(
+                painterResource(BadgeArt.idOf(context, spec.name)), description,
+                colorFilter = filter, modifier = Modifier.fillMaxSize().then(fade)
+            )
+            is BadgeArtSpec.Composite -> Box(Modifier.fillMaxSize().then(fade), contentAlignment = Alignment.Center) {
+                Image(painterResource(BadgeArt.idOf(context, spec.frame)), description, colorFilter = filter, modifier = Modifier.fillMaxSize())
+                Image(painterResource(BadgeArt.idOf(context, spec.symbol)), null, colorFilter = filter, modifier = Modifier.size(size * SYMBOL_SCALE))
+            }
+            is BadgeArtSpec.Common -> Image(
+                painterResource(R.drawable.badge_common), description,
+                colorFilter = filter,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(WenitTokens.BadgeRing, if (!earned) WenitTokens.BadgeLocked else if (tiered) tierColor(t) else untieredColor, CircleShape)
+                    .padding(WenitTokens.BadgeRing)
+                    .clip(CircleShape)
+                    .then(fade)
+            )
+        }
+        if (!earned && showLock) {
             Icon(
                 painterResource(R.drawable.ic_lock), contentDescription = stringResource(R.string.badge_locked),
                 tint = MaterialTheme.colorScheme.onSurface,
@@ -129,23 +173,22 @@ fun BadgeMedal(id: String, tierIndex: Int, size: Dp = WenitTokens.BadgeSize, mod
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), CircleShape)
                     .padding(size / 15)
             )
-        } else {
+        } else if (earned && tiered && showMark) {
             Text(
-                stringResource(tierMarkRes(tierIndex)),
+                stringResource(tierMarkRes(t)),
                 style = MaterialTheme.typography.labelMedium,
                 color = Color.White,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .size(WenitTokens.TierMarkSize)
-                    .background(tierColor(tierIndex), CircleShape)
+                    .background(tierColor(t), CircleShape)
                     .border(WenitTokens.TierMarkBorder, MaterialTheme.colorScheme.surface, CircleShape)
                     .padding(top = WenitTokens.TierMarkTextInset)
             )
         }
     }
 }
-
 
 // --- 진열장 ---
 
@@ -199,7 +242,8 @@ private fun BadgeCell(b: BadgeProgress, modifier: Modifier, onClick: () -> Unit)
         verticalArrangement = Arrangement.spacedBy(WenitTokens.SpaceXs)
     ) {
         Box {
-            BadgeMedal(b.def.id, b.tierIndex)
+            // 얻었으면 가장 높은 등급, 못 얻었으면 첫 등급 그림을 흑백으로
+            BadgeMedal(b.def.id, maxOf(b.tierIndex, 0), earned = b.earned)
             if (b.isNew) {
                 Box(
                     Modifier
@@ -223,8 +267,10 @@ private fun BadgeCell(b: BadgeProgress, modifier: Modifier, onClick: () -> Unit)
                 stringResource(R.string.badge_progress, minOf(b.value, next), next),
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        } else {
+        } else if (b.def.tiered) {
             Text(stringResource(tierNameRes(b.tierIndex)), style = MaterialTheme.typography.labelMedium, color = tierColor(b.tierIndex))
+        } else {
+            Text(stringResource(R.string.badge_untiered_earned), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -238,23 +284,50 @@ private fun BadgeDetailDialog(b: BadgeProgress, onDismiss: () -> Unit) {
         confirmButton = { TextButton(onDismiss) { Text(stringResource(R.string.action_close)) } },
         title = { Text(b.def.name) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(WenitTokens.SpaceS)) {
-                BadgeMedal(b.def.id, b.tierIndex, modifier = Modifier.align(Alignment.CenterHorizontally))
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(WenitTokens.SpaceS)
+            ) {
+                if (b.def.tiered) {
+                    // 5등급을 한 줄로. 얻은 등급은 색, 못 얻은 등급은 흑백·반투명
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        b.def.thresholds.indices.forEach { i ->
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                BadgeMedal(b.def.id, i, earned = i <= b.tierIndex, size = WenitTokens.BadgeTierRowSize, showLock = false, showMark = false)
+                                Text(
+                                    stringResource(tierNameRes(i)), style = MaterialTheme.typography.labelMedium,
+                                    color = if (i <= b.tierIndex) tierColor(i) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        if (b.earned) stringResource(R.string.badge_detail_current, stringResource(tierNameRes(b.tierIndex)))
+                        else stringResource(R.string.badge_locked),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (b.earned) tierColor(b.tierIndex) else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    BadgeMedal(b.def.id, 0, earned = b.earned, modifier = Modifier.align(Alignment.CenterHorizontally))
+                }
                 Text(stringResource(R.string.badge_detail_condition), style = MaterialTheme.typography.titleMedium)
                 b.def.thresholds.indices.forEach { i ->
                     val earnedAt = b.earnedAt[i]
+                    val tierName = if (b.def.tiered) stringResource(tierNameRes(i)) + " · " else ""
                     Caption(
-                        "${stringResource(tierNameRes(i))} · ${b.def.conditionAt(i)}" +
-                            (earnedAt?.let { "\n" + stringResource(R.string.badge_detail_earned, stringResource(tierNameRes(i)), format.format(Instant.ofEpochMilli(it).atZone(zone))) } ?: ""),
+                        tierName + b.def.conditionAt(i) +
+                            (earnedAt?.let { "\n" + stringResource(R.string.badge_detail_earned_on, format.format(Instant.ofEpochMilli(it).atZone(zone))) } ?: ""),
                         if (earnedAt != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 val next = b.nextThreshold
                 if (next != null) {
                     Text(
-                        stringResource(
-                            R.string.badge_detail_next, stringResource(tierNameRes(b.tierIndex + 1)), minOf(b.value, next), next, b.def.unit
-                        ),
+                        if (b.def.tiered) {
+                            stringResource(R.string.badge_detail_next, stringResource(tierNameRes(b.tierIndex + 1)), minOf(b.value, next), next, b.def.unit)
+                        } else {
+                            stringResource(R.string.badge_detail_untiered_progress, minOf(b.value, next), next, b.def.unit)
+                        },
                         style = MaterialTheme.typography.bodyLarge
                     )
                     LinearProgressIndicator(
@@ -262,7 +335,10 @@ private fun BadgeDetailDialog(b: BadgeProgress, onDismiss: () -> Unit) {
                         modifier = Modifier.fillMaxWidth().height(WenitTokens.ProgressHeight).clip(CircleShape)
                     )
                 } else {
-                    Text(stringResource(R.string.badge_detail_max), style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        stringResource(if (b.def.tiered) R.string.badge_detail_max else R.string.badge_untiered_earned),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
                 }
                 if (b.fromSeed) Caption(stringResource(R.string.badge_detail_example))
             }
@@ -308,14 +384,16 @@ fun CelebrationDialog(badge: EarnedBadge, onClose: () -> Unit) {
                 )
                 Text(stringResource(R.string.celebrate_title), style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
                 BadgeMedal(
-                    def.id, badge.tier, size = WenitTokens.BadgeCelebrateSize,
+                    def.id, badge.tier, earned = true, size = WenitTokens.BadgeCelebrateSize,
                     modifier = Modifier.scale(scale.value).alpha(alpha.value)
                 )
                 Text(def.name, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    stringResource(R.string.celebrate_tier, stringResource(tierNameRes(badge.tier))),
-                    style = MaterialTheme.typography.bodyLarge, color = tierColor(badge.tier)
-                )
+                if (def.tiered) {
+                    Text(
+                        stringResource(R.string.celebrate_tier, stringResource(tierNameRes(badge.tier))),
+                        style = MaterialTheme.typography.bodyLarge, color = tierColor(badge.tier)
+                    )
+                }
                 Caption(def.conditionAt(badge.tier.coerceIn(def.thresholds.indices)))
                 PrimaryButton(stringResource(R.string.celebrate_close), onClick = onClose)
             }

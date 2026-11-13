@@ -224,8 +224,76 @@ class RewardsTest {
         assertEquals(ids.size, ids.toSet().size)
         assertEquals(9, ids.size)
         assertEquals(BadgeMetric.entries.toSet(), BadgeCatalog.ALL.map { it.metric }.toSet())
-        assertTrue(BadgeCatalog.ALL.all { it.thresholds.size == 1 || it.thresholds.size == 3 })
+        assertTrue(BadgeCatalog.ALL.all { it.thresholds.size == 1 || it.thresholds.size == 5 })
         assertEquals("3일 연속으로 목표를 지켜요", BadgeCatalog.byId("steady")!!.conditionAt(0))
+    }
+
+    // --- [7] 5등급 ---
+
+    @Test
+    fun `five tiers with the requested thresholds and two untiered badges`() {
+        assertEquals(listOf("BRONZE", "SILVER", "GOLD", "DIAMOND", "MASTER"), BadgeTier.entries.map { it.name })
+        val expected = mapOf(
+            "steady" to listOf(3, 7, 14, 30, 60),
+            "time_rich" to listOf(1, 5, 10, 30, 100),
+            "self_stop" to listOf(10, 30, 100, 300, 1000),
+            "night_guard" to listOf(3, 7, 14, 30, 60),
+            "first_signal" to listOf(5, 20, 50, 100, 200),
+            "no_return" to listOf(5, 20, 50, 100, 200),
+            "shorts_free" to listOf(1, 3, 7, 14, 30)
+        )
+        expected.forEach { (id, t) -> assertEquals(id, t, BadgeCatalog.byId(id)!!.thresholds) }
+        assertEquals(setOf("first_stop", "first_goal"), BadgeCatalog.ALL.filterNot { it.tiered }.map { it.id }.toSet())
+        // 마스터까지 한 번에, 다시 주지 않음
+        val all = BadgeEngine.newlyEarned(BadgeTotals(stops = 1000), emptySet(), 1L)
+        assertEquals(listOf(0, 1, 2, 3, 4), all.filter { it.id == "self_stop" }.map { it.tier })
+        assertEquals(listOf(0), all.filter { it.id == "first_stop" }.map { it.tier })
+        assertEquals(3, BadgeCatalog.byId("steady")!!.reachedIndex(59))
+        assertEquals(4, BadgeCatalog.byId("steady")!!.reachedIndex(60))
+    }
+
+    @Test
+    fun `art picks tier image then badge image then frame plus symbol then common`() {
+        fun files(vararg n: String) = n.toSet()::contains
+        val r = BadgeArtResolver
+        assertEquals(BadgeArtSpec.Image("badge_time_rich_t3"), r.resolve("time_rich", 3, files("badge_time_rich_t3", "badge_time_rich", "badge_frame_t3", "badge_symbol_time_rich")))
+        assertEquals(BadgeArtSpec.Image("badge_time_rich"), r.resolve("time_rich", 2, files("badge_time_rich_t3", "badge_time_rich")))
+        assertEquals(BadgeArtSpec.Composite("badge_frame_t2", "badge_symbol_steady"), r.resolve("steady", 2, files("badge_frame_t2", "badge_symbol_steady")))
+        // 틀이나 기호 하나만 있으면 합성하지 않는다
+        assertEquals(BadgeArtSpec.Common("badge_common"), r.resolve("steady", 2, files("badge_frame_t2")))
+        assertEquals(BadgeArtSpec.Common("badge_common"), r.resolve("steady", 2, files("badge_symbol_steady")))
+        // 범위 밖 등급은 잘린다
+        assertEquals(BadgeArtSpec.Image("badge_x_t4"), r.resolve("x", 9, files("badge_x_t4")))
+    }
+
+    @Test
+    fun `art in the app resources gives time rich its own five tiers and others the common image`() {
+        val dir = java.io.File("src/main/res/drawable-nodpi")
+        val names = dir.listFiles()!!.map { it.nameWithoutExtension }.toSet()
+        for (t in 0..4) assertEquals(BadgeArtSpec.Image("badge_time_rich_t$t"), BadgeArtResolver.resolve("time_rich", t, names::contains))
+        for (def in BadgeCatalog.ALL.filter { it.id != "time_rich" }) {
+            assertEquals(def.id, BadgeArtSpec.Common("badge_common"), BadgeArtResolver.resolve(def.id, 0, names::contains))
+        }
+    }
+
+    @Test
+    fun `each seed scenario shows every tier from bronze to master`() {
+        val today = LocalDate.of(2026, 11, 13)
+        for (scenario in DemoSeedData.Scenario.entries) {
+            val b = DemoSeedData.build(scenario, today, zone, at(today, 20))
+            val top = b.badges.groupBy { it.id }.mapValues { (_, v) -> v.maxOf { it.tier } }
+            val tieredTops = top.filterKeys { BadgeCatalog.byId(it)!!.tiered }.values.toSet()
+            assertEquals(scenario.name, setOf(0, 1, 2, 3, 4), tieredTops)
+            // 등급은 빠짐없이 아래부터 채운다
+            b.badges.groupBy { it.id }.forEach { (id, v) -> assertEquals(id, (0..v.maxOf { it.tier }).toList(), v.map { it.tier }.sorted()) }
+            // 높은 등급이 낮은 등급보다 먼저 얻은 것으로 보이지 않고, 모두 오늘 전
+            b.badges.groupBy { it.id }.forEach { (id, v) ->
+                val byTier = v.sortedBy { it.tier }.map { it.earnedAtMs }
+                assertEquals(id, byTier.sorted(), byTier)
+            }
+            assertTrue(b.badges.all { it.earnedAtMs < today.atStartOfDay(zone).toInstant().toEpochMilli() })
+            assertTrue(b.badges.all { it.isSeed })
+        }
     }
 
     @Test

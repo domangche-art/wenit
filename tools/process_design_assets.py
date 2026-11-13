@@ -257,10 +257,91 @@ def make_badge(preview_dir: str) -> dict:
 
 BADGE_SIZE = 512
 
+# 등급별 시험 그림(13단계 [7]). 원본 한 장에 5개: 왼쪽 위 브론즈, 오른쪽 위 실버, 가운데 왼쪽 골드, 가운데 오른쪽 다이아, 아래 마스터.
+TIER_NAMES = ["bronze", "silver", "gold", "diamond", "master"]
+TIER_BADGE_ID = "time_rich"
+
+
+def tier_source() -> str:
+    """요청은 badge_tiers_test.png 였지만 실제 파일은 .webp 다. 있는 것을 쓴다."""
+    for name in ("badge_tiers_test.png", "badge_tiers_test.png.png", "badge_tiers_test.webp"):
+        p = os.path.join(ASSETS, name)
+        if os.path.exists(p):
+            return p
+    sys.exit("design-assets/badge_tiers_test.* 없음")
+
+
+def make_tier_badges(preview_dir: str) -> dict:
+    """
+    등급별 배지 5개를 하나씩 잘라 흰 배경과 그림자를 투명하게 한다.
+
+    1. 배경 = 이미지 가장자리에서 이어진 "밝고(최솟값 >= 195) 채도 낮은(< 0.10)" 영역. 그림자(약 210~248, 채도 약 0)도 여기에 든다.
+       배지마다 어두운 외곽선이 있어 채우기가 배지 안으로 들어가지 않는다. 실버 몸통처럼 채도 낮은 부분도 외곽선 안이라 남는다.
+    2. 나머지 중 큰 덩어리 5개 = 배지. 구멍은 채운다. 중심 위치로 등급을 정한다(위 2개 왼→오, 가운데 2개 왼→오, 아래 1개).
+    3. 외곽선 바깥 1px 은 그림자와 섞인 색이라 깎는다(외곽선은 그보다 두껍다).
+    4. 원본이 작아(배지 약 280px) 긴 변 512px 로 키운다. 마스크는 키운 뒤 살짝 흐리게 해 가장자리를 약 1.5px 폭 경사로 만든다(계단 없음).
+    5. 반투명 가장자리 픽셀의 색은 가장 가까운 불투명 픽셀 색으로 바꾼다(뾰족한 끝에 흰빛이 섞이지 않게).
+    """
+    src_path = tier_source()
+    src = Image.open(src_path).convert("RGB")
+    a = np.asarray(src, dtype=np.float64)
+    mx, mn = a.max(2), a.min(2)
+    sat = (mx - mn) / np.maximum(mx, 1)
+    light = (mn >= 195) & (sat < 0.10)
+    lab, n = ndimage.label(light)
+    border = set(np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))) - {0}
+    bg = np.isin(lab, list(border))
+    fg_lab, fn = ndimage.label(~bg)
+    sizes = ndimage.sum(np.ones_like(mn), fg_lab, range(1, fn + 1))
+    keep = (np.argsort(sizes)[::-1][:5] + 1).tolist()
+    parts = []
+    for k in keep:
+        m = ndimage.binary_fill_holes(fg_lab == k)
+        ys, xs = np.nonzero(m)
+        parts.append((ys.mean(), xs.mean(), m))
+    parts.sort(key=lambda p: p[0])
+    ordered = sorted(parts[:2], key=lambda p: p[1]) + sorted(parts[2:4], key=lambda p: p[1]) + parts[4:]
+
+    out_dir = os.path.join(RES, "drawable-nodpi")
+    results = []
+    sheet = Image.new("RGBA", ((BADGE_SIZE + 32) * 5, (BADGE_SIZE + 32) * 2), (0, 0, 0, 0))
+    for i, (_, _, m) in enumerate(ordered):
+        m = ndimage.binary_erosion(m, iterations=1)
+        ys, xs = np.nonzero(m)
+        pad = 4
+        y0, y1, x0, x1 = ys.min() - pad, ys.max() + pad + 1, xs.min() - pad, xs.max() + pad + 1
+        side = max(y1 - y0, x1 - x0)
+        cy, cx = (y0 + y1) // 2, (x0 + x1) // 2
+        box = (cx - side // 2, cy - side // 2, cx - side // 2 + side, cy - side // 2 + side)
+        rgb = src.crop(box).resize((BADGE_SIZE, BADGE_SIZE), Image.LANCZOS)
+        mask = Image.fromarray((m * 255).astype(np.uint8)).crop(box).resize((BADGE_SIZE, BADGE_SIZE), Image.BILINEAR)
+        mf = ndimage.gaussian_filter(np.asarray(mask, dtype=np.float64) / 255.0, sigma=BADGE_SIZE / side * 0.5)
+        alpha = np.clip((mf - 0.5) * 1.6 + 0.5, 0, 1)
+        # 반투명 가장자리의 색은 배경(흰색·그림자)이 섞였을 수 있다. 가장 가까운 불투명 픽셀의 색으로 바꿔 밝은 띠를 없앤다.
+        color = np.asarray(rgb, dtype=np.float64)
+        solid = alpha >= 0.95
+        _, (iy, ix) = ndimage.distance_transform_edt(~solid, return_indices=True)
+        color = np.where(solid[..., None], color, color[iy, ix])
+        rgba = np.dstack([color, alpha * 255]).round().astype(np.uint8)
+        im = Image.fromarray(rgba, "RGBA")
+        name = f"badge_{TIER_BADGE_ID}_t{i}"
+        path = os.path.join(out_dir, name + ".webp")
+        im.save(path, "WEBP", lossless=True, quality=100, method=6)
+        results.append({"tier": TIER_NAMES[i], "src_box": box, "src_side": side, "bytes": os.path.getsize(path), "file": name + ".webp"})
+        for row, color in enumerate(((18, 18, 18, 255), (242, 242, 242, 255))):
+            cell = Image.new("RGBA", (BADGE_SIZE, BADGE_SIZE), color)
+            cell.alpha_composite(im)
+            sheet.paste(cell, (16 + i * (BADGE_SIZE + 32), 16 + row * (BADGE_SIZE + 32)))
+            zoom = cell.crop((BADGE_SIZE // 2, BADGE_SIZE // 2, BADGE_SIZE, BADGE_SIZE))
+            zoom.resize((BADGE_SIZE, BADGE_SIZE), Image.NEAREST).save(
+                os.path.join(preview_dir, f"tier{i}_{TIER_NAMES[i]}_zoom_{'dark' if row == 0 else 'light'}.png"))
+    sheet.save(os.path.join(preview_dir, "tiers_on_dark_and_light.png"))
+    return {"source": os.path.basename(src_path), "source_size": src.size, "badges": results}
+
 
 def main():
     if len(sys.argv) not in (2, 3):
-        sys.exit("usage: process_design_assets.py <preview_dir outside the project> [icon|character|badge|all]")
+        sys.exit("usage: process_design_assets.py <preview_dir outside the project> [icon|character|badge|tiers|all]")
     preview_dir = os.path.abspath(sys.argv[1])
     if preview_dir.startswith(ROOT):
         sys.exit("미리보기는 프로젝트 밖에 둔다")
@@ -272,6 +353,8 @@ def main():
         print("character", make_character(preview_dir))
     if which in ("badge", "all"):
         print("badge", make_badge(preview_dir))
+    if which in ("tiers", "all"):
+        print("tiers", make_tier_badges(preview_dir))
 
 
 if __name__ == "__main__":

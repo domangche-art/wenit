@@ -1,7 +1,7 @@
 package com.example.shortsdetector.data.rewards
 
-/** 배지 등급. 기준값 목록의 순서와 같다(첫 기준 = 브론즈). */
-enum class BadgeTier { BRONZE, SILVER, GOLD }
+/** 배지 등급. 기준값 목록의 순서와 같다(첫 기준 = 브론즈). 등급 없는 배지는 기준값이 하나다([BadgeDef.tiered]). */
+enum class BadgeTier { BRONZE, SILVER, GOLD, DIAMOND, MASTER }
 
 /** 배지가 세는 값. 모두 규칙으로 계산하고 AI 를 쓰지 않는다. */
 enum class BadgeMetric {
@@ -24,7 +24,8 @@ enum class BadgeMetric {
 }
 
 /**
- * 배지 하나. 기준값이 하나면 등급이 하나(브론즈)뿐인 배지다.
+ * 배지 하나. 기준값이 하나면 등급 없는 배지(첫걸음·첫 목표), 다섯 개면 브론즈~마스터 5등급 배지다.
+ * 등급 없는 배지도 DB 에는 tier 0 한 행으로 남는다.
  * @param unit 진행률 문구의 단위
  */
 data class BadgeDef(
@@ -36,9 +37,12 @@ data class BadgeDef(
     val unit: String
 ) {
     init {
-        require(thresholds.isNotEmpty() && thresholds.size <= BadgeTier.entries.size) { "thresholds" }
+        require(thresholds.size == 1 || thresholds.size == BadgeTier.entries.size) { "thresholds" }
         require(thresholds.zipWithNext().all { (a, b) -> a < b }) { "ascending" }
     }
+
+    /** 등급이 있는 배지(브론즈~마스터) */
+    val tiered: Boolean get() = thresholds.size > 1
 
     fun tierOf(index: Int): BadgeTier = BadgeTier.entries[index]
 
@@ -58,13 +62,13 @@ object BadgeCatalog {
     val ALL: List<BadgeDef> = listOf(
         BadgeDef("first_stop", "첫걸음", BadgeMetric.STOPS, listOf(1), "처음으로 \"그만 볼게\"를 골라요", "회"),
         BadgeDef("first_goal", "첫 목표", BadgeMetric.GOALS_ACHIEVED, listOf(1), "처음으로 목표를 달성해요", "회"),
-        BadgeDef("steady", "꾸준함", BadgeMetric.BEST_STREAK, listOf(3, 7, 14), "{n}일 연속으로 목표를 지켜요", "일"),
-        BadgeDef("time_rich", "시간 부자", BadgeMetric.SAVED_HOURS, listOf(1, 5, 10), "아낀 시간이 모두 {n}시간이 돼요", "시간"),
-        BadgeDef("self_stop", "스스로 멈춤", BadgeMetric.STOPS, listOf(10, 30, 100), "\"그만 볼게\"를 모두 {n}번 골라요", "회"),
-        BadgeDef("night_guard", "밤 지킴이", BadgeMetric.NIGHT_CLEAN_DAYS, listOf(3, 7, 14), "밤 11시~새벽 5시에 안 본 날이 {n}일이 돼요", "일"),
-        BadgeDef("first_signal", "첫 신호에 멈춤", BadgeMetric.LV1_STOPS, listOf(5, 20, 50), "첫 알림(Lv.1)에서 바로 멈춘 횟수가 {n}번이 돼요", "회"),
-        BadgeDef("no_return", "돌아오지 않기", BadgeMetric.NO_RETURN_STOPS, listOf(5, 20, 50), "멈춘 뒤 30분 안에 다시 켜지 않은 횟수가 {n}번이 돼요", "회"),
-        BadgeDef("shorts_free", "쇼츠 없는 날", BadgeMetric.SHORTS_FREE_DAYS, listOf(1, 3, 7), "쇼츠를 아예 안 본 날이 {n}일이 돼요", "일")
+        BadgeDef("steady", "꾸준함", BadgeMetric.BEST_STREAK, listOf(3, 7, 14, 30, 60), "{n}일 연속으로 목표를 지켜요", "일"),
+        BadgeDef("time_rich", "시간 부자", BadgeMetric.SAVED_HOURS, listOf(1, 5, 10, 30, 100), "아낀 시간이 모두 {n}시간이 돼요", "시간"),
+        BadgeDef("self_stop", "스스로 멈춤", BadgeMetric.STOPS, listOf(10, 30, 100, 300, 1000), "\"그만 볼게\"를 모두 {n}번 골라요", "회"),
+        BadgeDef("night_guard", "밤 지킴이", BadgeMetric.NIGHT_CLEAN_DAYS, listOf(3, 7, 14, 30, 60), "밤 11시~새벽 5시에 안 본 날이 {n}일이 돼요", "일"),
+        BadgeDef("first_signal", "첫 신호에 멈춤", BadgeMetric.LV1_STOPS, listOf(5, 20, 50, 100, 200), "첫 알림(Lv.1)에서 바로 멈춘 횟수가 {n}번이 돼요", "회"),
+        BadgeDef("no_return", "돌아오지 않기", BadgeMetric.NO_RETURN_STOPS, listOf(5, 20, 50, 100, 200), "멈춘 뒤 30분 안에 다시 켜지 않은 횟수가 {n}번이 돼요", "회"),
+        BadgeDef("shorts_free", "쇼츠 없는 날", BadgeMetric.SHORTS_FREE_DAYS, listOf(1, 3, 7, 14, 30), "쇼츠를 아예 안 본 날이 {n}일이 돼요", "일")
     )
 
     fun byId(id: String): BadgeDef? = ALL.firstOrNull { it.id == id }

@@ -35,7 +35,7 @@ import com.example.shortsdetector.DetectionConfig
 import com.example.shortsdetector.R
 import com.example.shortsdetector.ai.agent.AgentPolicyRules
 import com.example.shortsdetector.data.goal.GoalPeriod
-import com.example.shortsdetector.data.rewards.BadgeCatalog
+import com.example.shortsdetector.data.rewards.BadgeTier
 import com.example.shortsdetector.data.rewards.EarnedBadge
 import com.example.shortsdetector.data.stats.DailyWatch
 import com.example.shortsdetector.data.stats.WeekStats
@@ -381,7 +381,7 @@ fun DeveloperScreen(
 
         SectionTitle(stringResource(R.string.dev_rewards))
         SecondaryButton(stringResource(R.string.dev_celebrate_preview)) {
-            onPreviewCelebration(EarnedBadge(BadgeCatalog.ALL[2].id, 1, System.currentTimeMillis()))
+            onPreviewCelebration(EarnedBadge(PREVIEW_BADGE_ID, BadgeTier.MASTER.ordinal, System.currentTimeMillis()))
         }
         SecondaryButton(stringResource(R.string.dev_badge_notification), enabled = !s.working, onClick = vm::testBadgeNotification)
         s.badgeNotified?.let { Caption(stringResource(if (it) R.string.dev_badge_notified else R.string.dev_badge_not_notified)) }
@@ -412,3 +412,6 @@ fun DeveloperScreen(
         }
     }
 }
+
+/** 개발자 화면의 축하 미리보기: 등급별 전용 그림이 있는 시간 부자 마스터 */
+private const val PREVIEW_BADGE_ID = "time_rich"

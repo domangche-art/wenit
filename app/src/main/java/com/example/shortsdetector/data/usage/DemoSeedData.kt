@@ -171,7 +171,35 @@ object DemoSeedData {
             }
         }
         val days = seedDays(scenario, sessions, interventions, today, zone, nowMs)
-        return Batch(sessions, interventions, days, seedBadges(days, zone))
+        return Batch(sessions, interventions, days, withShowcaseTiers(scenario, seedBadges(days, zone), today, zone))
+    }
+
+    /**
+     * 진열장 시연용으로 덧붙이는 등급(배지 id → 가장 높은 등급 0~4). 시드 14일치로는 다이아·마스터 기준에 닿지 않아
+     * 모든 등급 모양이 보이도록 예시 등급을 넣는다. 한 시나리오에서 브론즈~마스터가 한 번씩 보인다.
+     * 시드 기록에서 계산한 값과 다를 수 있다(진열장 진행률은 등급 기준값 이상으로 보인다). 실제 판정에는 쓰지 않는다.
+     */
+    internal fun showcaseTiers(scenario: Scenario): Map<String, Int> = when (scenario) {
+        Scenario.LATE_NIGHT_SKIPPER -> mapOf("time_rich" to 4, "steady" to 3, "self_stop" to 2, "night_guard" to 1, "first_signal" to 0)
+        Scenario.EASY_STOPPER -> mapOf("no_return" to 4, "time_rich" to 3, "shorts_free" to 2, "steady" to 1, "first_signal" to 0)
+    }
+
+    /**
+     * 계산된 시드 배지에 [showcaseTiers] 의 빠진 등급을 더한다. 얻은 날은 같은 배지의 이미 얻은 가장 늦은 날(없으면 14일 전)
+     * 다음 날부터 등급 순서대로 하루씩, 어제를 넘지 않는다(높은 등급이 낮은 등급보다 앞서지 않게).
+     */
+    private fun withShowcaseTiers(scenario: Scenario, computed: List<EarnedBadge>, today: LocalDate, zone: ZoneId): List<EarnedBadge> {
+        val have = computed.map { it.id to it.tier }.toSet()
+        val yesterday = today.minusDays(1)
+        val extra = showcaseTiers(scenario).flatMap { (id, top) ->
+            val after = computed.filter { it.id == id }.maxOfOrNull { it.earnedAtMs }
+                ?.let { DailyUsageCalculator.dateOf(it, zone) } ?: today.minusDays(SEED_DAYS + 1)
+            (0..top).filter { (id to it) !in have }.mapIndexed { k, tier ->
+                val day = minOf(after.plusDays(k + 1L), yesterday)
+                EarnedBadge(id, tier, day.atTime(BADGE_HOUR, tier).atZone(zone).toInstant().toEpochMilli(), isSeed = true, seen = true, celebrated = true, notified = true)
+            }
+        }
+        return computed + extra
     }
 
     /** 시드 기록을 실제 기록처럼 넣은 메모리 저장소에서 실제와 같은 하루 판정을 돌리고, 결과에 시드 표시를 붙인다. */

@@ -30,7 +30,9 @@ object BadgeNotifier {
     /** 여러 개를 한 알림으로 묶는다. 권한이 없으면 false(배지는 다음에 앱을 열 때 축하 화면으로 보여 준다). */
     fun notify(context: Context, badges: List<EarnedBadge>): Boolean {
         if (badges.isEmpty() || !ShortsNotifier.hasPostPermission(context)) return false
-        val names = badges.mapNotNull { b -> BadgeCatalog.byId(b.id)?.let { "${it.name}(${tierName(context, b.tier)})" } }
+        val names = badges.mapNotNull { b ->
+            BadgeCatalog.byId(b.id)?.let { if (it.tiered) "${it.name}(${tierName(context, b.tier)})" else it.name }
+        }
         if (names.isEmpty()) return false
         ensureChannel(context)
         val intent = PendingIntent.getActivity(
@@ -60,7 +62,9 @@ object BadgeNotifier {
         when (tier) {
             0 -> R.string.badge_tier_bronze
             1 -> R.string.badge_tier_silver
-            else -> R.string.badge_tier_gold
+            2 -> R.string.badge_tier_gold
+            3 -> R.string.badge_tier_diamond
+            else -> R.string.badge_tier_master
         }
     )
 }

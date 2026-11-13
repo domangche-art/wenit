@@ -41,10 +41,15 @@ object WenitTokens {
     val BadgeBronze = Color(0xFFB0703A)
     val BadgeSilver = Color(0xFF9EA7B3)
     val BadgeGold = Color(0xFFE2B33C)
+    val BadgeDiamond = Color(0xFF3FB6E0)
+    val BadgeMaster = Color(0xFF8B5CF6)
+    // 등급 없는 배지(첫걸음·첫 목표)의 고리
+    val BadgeUntiered = Color(0xFF3D5AFE)
     val BadgeLocked = Color(0xFF8A8A8F)
     val BadgeSize = 88.dp
     val BadgeRing = 5.dp
     val BadgeCelebrateSize = 200.dp
+    val BadgeTierRowSize = 44.dp
     val TierMarkSize = 22.dp
     val TierMarkBorder = 1.5.dp
     val TierMarkTextInset = 2.dp
