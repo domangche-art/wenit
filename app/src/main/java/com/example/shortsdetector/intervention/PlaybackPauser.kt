@@ -58,6 +58,9 @@ class PlaybackPauser(
     var pausedByApp = false
         private set
 
+    /** 멈추는 절차가 진행 중이다. */
+    val isPausing: Boolean get() = running
+
     /** 앱이 멈춘 영상을 사용자가 다시 재생했으면 true 를 한 번 돌려준다. */
     fun checkResumed(): Boolean {
         if (!pausedByApp || !controls.isPlaying()) return false

@@ -24,7 +24,10 @@ import com.example.shortsdetector.data.usage.InterventionOutcome.STOPPED
 import com.example.shortsdetector.data.usage.InterventionRecord
 import com.example.shortsdetector.data.usage.SystemUsageClock
 import com.example.shortsdetector.data.usage.UsageSchema
+import com.example.shortsdetector.detection.DetectionEngine
+import com.example.shortsdetector.detection.adapters.youtube.YouTubeShortsAdapter
 import com.example.shortsdetector.detection.model.WindowStatus
+import com.example.shortsdetector.detection.state.DetectionTuning
 import com.example.shortsdetector.intervention.character.Box
 import com.example.shortsdetector.intervention.character.Characters
 import com.example.shortsdetector.intervention.character.Lv4CharacterRules
@@ -235,6 +238,44 @@ class InterventionStep15Test {
         assertFalse(LeaveGuard.closeBlocking(true, WindowStatus.TARGET))
         assertFalse("창을 못 얻은 순간은 이탈 신호에 맡긴다", LeaveGuard.closeBlocking(true, WindowStatus.UNAVAILABLE))
         assertFalse("Lv.1~3 은 기존 규칙 그대로", LeaveGuard.closeBlocking(false, WindowStatus.FOREIGN))
+    }
+
+    @Test
+    fun `quick leave check closes level 4 when the active window is not a target app`() {
+        val tuning = DetectionTuning()
+        val engine = DetectionEngine(tuning, listOf(YouTubeShortsAdapter(tuning)), 30_000)
+        fun quick(pkg: String?) = LeaveGuard.closeOnQuickCheck(true, pkg, engine.isTarget(pkg))
+
+        assertFalse("YouTube 안에서는 닫지 않는다", quick("com.google.android.youtube"))
+        assertTrue("홈(런처)", quick("com.sec.android.app.launcher"))
+        assertTrue("알림창·빠른 설정·잠금 화면(시스템 UI)", quick(DetectionEngine.SYSTEM_UI_PACKAGE))
+        assertTrue("다른 앱", quick("com.android.settings"))
+        assertTrue("WENIT 앱 화면도 대상 앱이 아니다", quick("com.example.shortsdetector"))
+        assertFalse("활성 창을 못 얻으면 닫지 않는다", quick(null))
+        assertFalse("Lv.1~3 은 빠른 확인을 하지 않는다", LeaveGuard.closeOnQuickCheck(false, "com.sec.android.app.launcher", false))
+    }
+
+    @Test
+    fun `quick leave check agrees with the per-observation leave guard`() {
+        // 대상 앱이 아닌 창(FOREIGN·SYSTEM_PANEL)은 둘 다 닫고, 대상 앱 창은 둘 다 닫지 않는다.
+        assertEquals(
+            LeaveGuard.closeBlocking(true, WindowStatus.FOREIGN),
+            LeaveGuard.closeOnQuickCheck(true, "com.sec.android.app.launcher", isTargetPackage = false)
+        )
+        assertEquals(
+            LeaveGuard.closeBlocking(true, WindowStatus.TARGET),
+            LeaveGuard.closeOnQuickCheck(true, "com.google.android.youtube", isTargetPackage = true)
+        )
+        assertEquals(
+            LeaveGuard.closeBlocking(true, WindowStatus.UNAVAILABLE),
+            LeaveGuard.closeOnQuickCheck(true, null, isTargetPackage = false)
+        )
+    }
+
+    @Test
+    fun `quick leave check runs well inside the one second watchdog`() {
+        assertTrue(LeaveGuard.FAST_CHECK_MS in 50L..300L)
+        assertTrue(LeaveGuard.FAST_CHECK_MS < com.example.shortsdetector.DetectionConfig.WATCHDOG_INTERVAL_MS)
     }
 
     // --- [3] 캐릭터 구조 ---

@@ -48,6 +48,7 @@ import com.example.shortsdetector.intervention.InterventionCopyInput
 import com.example.shortsdetector.intervention.InterventionPopup
 import com.example.shortsdetector.intervention.character.CharacterOverlay
 import com.example.shortsdetector.intervention.InterventionResult
+import com.example.shortsdetector.intervention.BlockingPlaybackGuard
 import com.example.shortsdetector.intervention.LeaveGuard
 import com.example.shortsdetector.intervention.MaxLevelRepeatRule
 import com.example.shortsdetector.intervention.LiveRecordFilter
@@ -154,6 +155,33 @@ class ShortsDetectionService : AccessibilityService() {
         lastAnalysisAt = SystemClock.elapsedRealtime()
         analyzeCurrentScreen(SOURCE_TIMER)
         scheduleWatchdogIfNeeded()
+    }
+
+    private var leaveCheckScheduled = false
+    private val blockingPlayback = BlockingPlaybackGuard()
+
+    /**
+     * Lv.4 가 떠 있는 동안만 도는 빠른 확인. 막이 닫히면 스스로 멈춘다. [LeaveGuard.FAST_CHECK_MS]
+     * 대상 앱을 떠났으면 막을 닫고, 막 뒤에서 재생이 시작됐으면 다시 멈춘다([BlockingPlaybackGuard]).
+     */
+    private val leaveCheck = Runnable {
+        leaveCheckScheduled = false
+        if (!popup.isBlockingCharacter) return@Runnable
+        try {
+            val pkg = activeWindowPackage()
+            if (LeaveGuard.closeOnQuickCheck(true, pkg, engine.isTarget(pkg))) {
+                Log.i(TAG, "[빠른 확인] 대상 앱이 아닌 창: Lv.4 막 닫음")
+                interruptIntervention()
+                return@Runnable
+            }
+            if (blockingPlayback.shouldRepause(true, playbackControls.isPlaying(), pauser.isPausing)) {
+                Log.i(TAG, "[빠른 확인] Lv.4 막 뒤에서 재생이 시작됨: 다시 멈춤")
+                pausePlayback()
+            }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "빠른 확인 실패: ${e.javaClass.simpleName}")
+        }
+        scheduleLeaveCheck()
     }
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -340,6 +368,7 @@ class ShortsDetectionService : AccessibilityService() {
         finishAllowance(allowanceRun?.let { allowanceLastWatchMs - it.startWatchMs } ?: 0L, exhausted = false)
         resumeHint.dismiss()
         stopWatchdog()
+        stopLeaveCheck()
         closeIntervention()
         releasePlaybackControl()
         unregisterPreferenceListeners()
@@ -353,6 +382,7 @@ class ShortsDetectionService : AccessibilityService() {
         finishAllowance(allowanceRun?.let { allowanceLastWatchMs - it.startWatchMs } ?: 0L, exhausted = false)
         resumeHint.dismiss()
         stopWatchdog()
+        stopLeaveCheck()
         closeIntervention()
         releasePlaybackControl()
         stopUsageRecording()
@@ -525,6 +555,31 @@ class ShortsDetectionService : AccessibilityService() {
             watchdogScheduled = true
         } else if (!needed && watchdogScheduled) {
             stopWatchdog()
+        }
+    }
+
+    private fun scheduleLeaveCheck() {
+        if (popup.isBlockingCharacter && !leaveCheckScheduled) {
+            handler.postDelayed(leaveCheck, LeaveGuard.FAST_CHECK_MS)
+            leaveCheckScheduled = true
+        }
+    }
+
+    private fun stopLeaveCheck() {
+        handler.removeCallbacks(leaveCheck)
+        leaveCheckScheduled = false
+    }
+
+    /** 활성 창의 패키지 이름만 읽는다. 창을 못 얻으면 null. */
+    private fun activeWindowPackage(): String? {
+        val root = getRootInActiveWindow() ?: return null
+        try {
+            return root.packageName?.toString()
+        } finally {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                @Suppress("DEPRECATION")
+                root.recycle()
+            }
         }
     }
 
@@ -795,6 +850,10 @@ class ShortsDetectionService : AccessibilityService() {
         val copy = if (allowanceUsedUp) base.copy(title = getString(R.string.allowance_used_up_prefix, base.title)) else base
         val allowanceLeft = if (allowanceUsedUp) 0L else AllowancePreferences.remainingMs(this, resolved.demoMode, LocalDate.now(ZoneId.systemDefault()))
         val popupShown = DetectionPreferences.isPopupEnabled(this) && popup.show(level, copy, watchMs, popupListener, allowanceLeft)
+        if (popupShown && popup.isBlockingCharacter) {
+            blockingPlayback.onShown()
+            scheduleLeaveCheck()
+        }
         val notified = !popupShown &&
             ShortsNotifier.notifyWatchThreshold(this, session, pkg, watchMs, interventionId)
         val shown = popupShown || notified

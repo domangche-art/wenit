@@ -10,9 +10,23 @@ import com.example.shortsdetector.detection.model.WindowStatus
  * 대상 앱 창이 아니면(홈·다른 앱·잠금 화면·알림창·빠른 설정) 바로 닫는다.
  *
  * 창을 얻지 못한 관찰(UNAVAILABLE)은 대상 앱 안에서도 잠깐 생길 수 있어 이 규칙에서는 닫지 않는다.
- * 그 경우는 기존 이탈 신호가 닫는다. TODO: VERIFY ON DEVICE — 홈 버튼·최근 앱·알림창에서 막이 바로 사라지는지.
+ * 그 경우는 기존 이탈 신호가 닫는다.
+ *
+ * 빠른 확인(15단계 실기기 검증 뒤 추가): 서비스는 packageNames 필터로 대상 앱 이벤트만 받아서, 홈·다른 앱으로 가도
+ * 이벤트가 오지 않는다. 관찰은 1초 감시 타이머에서만 일어나 막이 홈 화면 위에 최대 2초가량 남았다(SM-S906N 실측 1.9초).
+ * 그래서 Lv.4 가 떠 있는 동안만 [FAST_CHECK_MS] 마다 활성 창의 패키지 이름만 확인한다(트리 순회 없음).
  */
 object LeaveGuard {
+    /** Lv.4 가 떠 있는 동안 활성 창을 확인하는 간격. 패키지 이름만 읽어 비용이 작다. */
+    const val FAST_CHECK_MS = 150L
+
     fun closeBlocking(blockingShown: Boolean, window: WindowStatus): Boolean =
         blockingShown && (window == WindowStatus.FOREIGN || window == WindowStatus.SYSTEM_PANEL)
+
+    /**
+     * 빠른 확인의 판정. 활성 창이 대상 앱이 아니면(다른 앱·홈·시스템 UI) 닫는다. [closeBlocking] 의 FOREIGN·SYSTEM_PANEL 과 같다.
+     * 활성 창을 얻지 못했으면([activePackage] null) 닫지 않는다(UNAVAILABLE 과 같은 이유).
+     */
+    fun closeOnQuickCheck(blockingShown: Boolean, activePackage: String?, isTargetPackage: Boolean): Boolean =
+        blockingShown && activePackage != null && !isTargetPackage
 }
