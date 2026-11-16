@@ -138,6 +138,7 @@ class InterventionPopup(
             view = v
             screen.attached(v, host)
             attachCharacter(v, spec.window)
+            OverlayFrameWatch.watch(v, "개입 팝업")
             true
         } catch (e: RuntimeException) {
             // BadTokenException, InflateException 등. 원문 없이 예외 종류만 남긴다.

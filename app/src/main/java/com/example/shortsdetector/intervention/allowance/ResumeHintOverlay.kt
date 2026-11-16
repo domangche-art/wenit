@@ -14,7 +14,7 @@ import com.example.shortsdetector.R
 import com.example.shortsdetector.ShortsDetectionService
 
 /**
- * "영상을 탭하면 이어서 볼 수 있어요" 안내(14단계). 화면 아래쪽에 [ResumeHintRule.SHOW_MS] 동안 띄운다.
+ * "영상을 탭하면 이어서 볼 수 있어요" 안내(14단계). 화면 세로 중앙보다 조금 아래에 [ResumeHintRule.SHOW_MS] 동안 띄운다.
  *  - FLAG_NOT_TOUCHABLE: 터치를 받지 않아 아래 영상 탭이 그대로 영상으로 간다.
  *  - 다시 재생되면 서비스가 [dismiss] 를 부른다. 이탈·세션 종료 때도 지운다.
  *  - 색은 팝업 색(values / values-night)을 쓰고, 서비스 창의 강제 다크(11단계에서 캐릭터가 사라진 원인)를 끈다.
@@ -42,8 +42,9 @@ class ResumeHintOverlay(private val service: AccessibilityService) {
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                y = service.resources.getDimensionPixelSize(R.dimen.resume_hint_bottom_margin)
+                // 쇼츠의 채널 이름·설명 줄(아래쪽)과 겹치지 않게 화면 세로 중앙보다 조금 아래(14-2단계)
+                gravity = Gravity.CENTER
+                y = ResumeHintRule.centerOffsetPx(service.resources.displayMetrics.heightPixels)
                 windowAnimations = android.R.style.Animation_Toast
             }
             wm.addView(v, params)

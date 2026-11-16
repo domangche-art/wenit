@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 캐릭터가 사라질 때(창 애니메이션). 0.16초에 0.6배로 줄며 투명해진다(11단계 탭 동작과 같은 모양) -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="160"
+    android:interpolator="@android:anim/accelerate_interpolator"
+    android:shareInterpolator="true">
+    <scale
+        android:fromXScale="1.0"
+        android:fromYScale="1.0"
+        android:pivotX="50%"
+        android:pivotY="100%"
+        android:toXScale="0.6"
+        android:toYScale="0.6" />
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.0" />
+</set>

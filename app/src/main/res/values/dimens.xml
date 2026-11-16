@@ -17,7 +17,6 @@
     <dimen name="popup_text_button_height">40dp</dimen>
     <dimen name="popup_text_button_text">14sp</dimen>
     <!-- 14단계: 팝업이 닫힌 뒤 화면 아래쪽 재생 안내 -->
-    <dimen name="resume_hint_bottom_margin">120dp</dimen>
     <dimen name="resume_hint_padding_h">18dp</dimen>
     <dimen name="resume_hint_padding_v">12dp</dimen>
     <dimen name="resume_hint_text">15sp</dimen>

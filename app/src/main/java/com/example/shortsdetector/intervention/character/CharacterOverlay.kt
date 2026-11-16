@@ -6,11 +6,10 @@ import android.util.Log
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
-import android.view.animation.AccelerateInterpolator
-import android.view.animation.OvershootInterpolator
 import android.widget.ImageView
 import com.example.shortsdetector.R
 import com.example.shortsdetector.ShortsDetectionService
+import com.example.shortsdetector.intervention.OverlayFrameWatch
 import com.example.shortsdetector.intervention.OverlayWindow
 import com.example.shortsdetector.intervention.OverlayWindows
 
@@ -21,7 +20,10 @@ import com.example.shortsdetector.intervention.OverlayWindows
  *
  *  - 창은 캐릭터 이미지 크기다. 창 위 터치만 받고 나머지는 아래 화면으로 간다(FLAG_NOT_TOUCH_MODAL).
  *    한 창 안에서 투명한 부분만 통과시키는 공개 API 는 없어서, 이미지의 사각 영역이 터치 영역이다.
- *  - 나타날 때 작게 시작해 튀어오른다. 탭하면 캐릭터만 사라진다. [dismiss] 는 바로 지운다(개입이 닫힐 때).
+ *  - 나타날 때 작게 시작해 튀어오른다. 탭하면 캐릭터만 사라진다. [dismiss] 는 개입이 닫힐 때 지운다.
+ *  - 등장·퇴장은 창 애니메이션([R.style.CharacterWindowAnimation])이다(14-2단계). 시스템이 창에 적용하므로, 서비스 프로세스가
+ *    화면 프레임을 받지 못해도 캐릭터 뷰는 처음부터 최종 상태(보임)로 그려진다. 예전에는 뷰를 투명·0.3배로 그린 뒤 앱 쪽
+ *    애니메이터로 키웠는데, 다크/라이트 전환 뒤 프레임이 멈추면 투명한 첫 그림이 남아 "창은 있는데 안 보이는" 상태가 됐다.
  *  - 포커스를 가져가지 않는다. 예외는 여기서 격리한다. 캐릭터가 실패해도 개입은 그대로다.
  *
  * 메인 스레드에서만 호출한다. TODO: VERIFY ON DEVICE — 제조사 ROM 의 창 순서와 애니메이션.
@@ -70,13 +72,14 @@ class CharacterOverlay(
             val p = OverlayWindows.floatingParams(placement.width, placement.height).apply {
                 x = placement.x
                 y = placement.y
+                windowAnimations = R.style.CharacterWindowAnimation
             }
             wm.addView(v, p)
             view = v
             params = p
             this.anchor = anchor
-            popIn(v, placement)
             Log.i(ShortsDetectionService.TAG, "캐릭터 표시: ${placement.width}x${placement.height} at (${placement.x}, ${placement.y})")
+            OverlayFrameWatch.watch(v, "캐릭터")
             true
         } catch (e: RuntimeException) {
             Log.w(ShortsDetectionService.TAG, "캐릭터 표시 실패: ${e.javaClass.simpleName}")
@@ -115,7 +118,6 @@ class CharacterOverlay(
         view = null
         params = null
         anchor = null
-        v.animate().cancel()
         try {
             service.getSystemService(WindowManager::class.java)?.removeViewImmediate(v)
         } catch (e: RuntimeException) {
@@ -136,29 +138,11 @@ class CharacterOverlay(
     }
 
     /** 작게(아래쪽 기준) 시작해서 튀어오른다. */
-    private fun popIn(v: View, placement: Placement) {
-        v.pivotX = placement.width / 2f
-        v.pivotY = placement.height.toFloat()
-        v.scaleX = START_SCALE
-        v.scaleY = START_SCALE
-        v.alpha = 0f
-        v.animate()
-            .scaleX(1f).scaleY(1f).alpha(1f)
-            .setDuration(POP_IN_MS)
-            .setInterpolator(OvershootInterpolator(OVERSHOOT))
-            .start()
-    }
-
-    /** 탭: 캐릭터만 줄어들며 사라진다. 개입은 그대로다. */
+    /** 탭: 캐릭터만 사라진다(퇴장 창 애니메이션). 개입은 그대로다. 앱 쪽 애니메이터를 기다리지 않는다. */
     private fun hideByTap() {
         val v = view ?: return
         v.isClickable = false
-        v.animate()
-            .scaleX(TAP_END_SCALE).scaleY(TAP_END_SCALE).alpha(0f)
-            .setDuration(TAP_OUT_MS)
-            .setInterpolator(AccelerateInterpolator())
-            .withEndAction { if (view === v) dismiss() }
-            .start()
+        dismiss()
     }
 
     /** 상태 표시줄 아래부터 화면 끝까지 */
@@ -176,13 +160,8 @@ class CharacterOverlay(
     }
 
     private companion object {
-        const val START_SCALE = 0.3f
-        /** 최대 약 1.07배까지 튄다. [OVERSHOOT_ROOM] 여백 안에 들어온다. */
-        const val OVERSHOOT = 2.0f
+        /** 등장 애니메이션(res/anim/character_pop_in.xml, overshoot 2.0)이 최대 약 1.07배까지 튄다. 그 여백(11단계와 같은 크기). */
         const val OVERSHOOT_ROOM = 0.06f
-        const val POP_IN_MS = 420L
-        const val TAP_END_SCALE = 0.6f
-        const val TAP_OUT_MS = 160L
         const val FALLBACK_STATUS_BAR_DP = 24
     }
 }

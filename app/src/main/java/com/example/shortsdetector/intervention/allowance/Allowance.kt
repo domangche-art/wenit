@@ -98,6 +98,15 @@ object ResumeHintRule {
     private val SHOW_AFTER = setOf(InterventionOutcome.CONTINUED, InterventionOutcome.ALLOWANCE, InterventionOutcome.IGNORED)
     const val SHOW_MS = 3_000L
 
+    /**
+     * 안내 위치: 화면 세로 중앙에서 화면 높이의 이 비율만큼 아래(14-2단계). 처음에는 아래에서 120dp 였는데 YouTube 쇼츠의
+     * 채널 이름·설명 줄과 겹쳤다. 쇼츠의 글자는 주로 아래쪽 약 25% 와 맨 위에 있다.
+     */
+    const val CENTER_OFFSET_RATIO = 0.12f
+
+    /** 중앙 기준(Gravity.CENTER) 아래쪽 거리(px) */
+    fun centerOffsetPx(screenHeightPx: Int): Int = (screenHeightPx.coerceAtLeast(0) * CENTER_OFFSET_RATIO).toInt()
+
     fun shouldShow(outcome: InterventionOutcome, viaPopup: Boolean, pausedByApp: Boolean, sessionOpen: Boolean, playing: Boolean): Boolean =
         viaPopup && outcome in SHOW_AFTER && pausedByApp && sessionOpen && !playing
 }

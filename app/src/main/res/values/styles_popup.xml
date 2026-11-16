@@ -40,6 +40,12 @@
         <item name="android:textColor">@color/breathing_text_secondary</item>
     </style>
 
+    <!-- 14-2단계: 캐릭터 창의 등장·퇴장. 시스템(창 관리자)이 적용하므로 앱 프레임이 멈춰도 캐릭터가 보인다 -->
+    <style name="CharacterWindowAnimation">
+        <item name="android:windowEnterAnimation">@anim/character_pop_in</item>
+        <item name="android:windowExitAnimation">@anim/character_pop_out</item>
+    </style>
+
     <style name="PopupOption">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">@dimen/popup_option_height</item>

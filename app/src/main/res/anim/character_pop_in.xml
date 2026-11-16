@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  캐릭터 등장(창 애니메이션). 아래 가운데를 기준으로 0.3배·투명에서 튀어 오르며 커진다(11단계와 같은 모양: 0.42초, overshoot 2.0).
+  14-2단계: 앱 쪽 ViewPropertyAnimator 대신 시스템이 창에 적용한다. 서비스 프로세스가 화면 프레임을 받지 못해도
+  캐릭터 뷰는 처음부터 최종 상태(보임)로 그려진다.
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="420"
+    android:interpolator="@android:anim/overshoot_interpolator"
+    android:shareInterpolator="true">
+    <scale
+        android:fromXScale="0.3"
+        android:fromYScale="0.3"
+        android:pivotX="50%"
+        android:pivotY="100%"
+        android:toXScale="1.0"
+        android:toYScale="1.0" />
+    <alpha
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0" />
+</set>
