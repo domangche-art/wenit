@@ -88,7 +88,9 @@ object DemoSeedData {
         val outcome: InterventionOutcome,
         val reason: InterventionUserReason? = null,
         val backMinutes: Long? = null,
-        val appMinutes: Long? = null
+        val appMinutes: Long? = null,
+        /** Lv.4 캐릭터를 치운 방법(15단계) */
+        val dismissal: CharacterDismissal? = null
     ) {
         val returnStatus: InterventionReturn?
             get() = when {
@@ -113,6 +115,10 @@ object DemoSeedData {
 
     private fun c(level: Int, reason: InterventionUserReason? = null) = Reaction(level, InterventionOutcome.CONTINUED, reason)
     private fun i(level: Int) = Reaction(level, InterventionOutcome.IGNORED)
+
+    /** Lv.4 캐릭터를 탭(또는 끌기)으로 치우고 계속 봄(15단계) */
+    private fun tap4() = Reaction(4, InterventionOutcome.CONTINUED, dismissal = CharacterDismissal.TAP)
+    private fun drag4() = Reaction(4, InterventionOutcome.CONTINUED, dismissal = CharacterDismissal.DRAG)
     private fun s(level: Int, reason: InterventionUserReason? = null, back: Long? = null, app: Long? = null) =
         Reaction(level, InterventionOutcome.STOPPED, reason, back, app)
 
@@ -135,7 +141,8 @@ object DemoSeedData {
         Row(6, 23, 40, 52, listOf(c(1), c(2, BORED), s(2, BORED, back = 4))),
         Row(6, 21, 30, 14, listOf(s(1, back = 8))),
         Row(5, 23, 5, 44, listOf(i(2), c(2, PROCRASTINATING), s(2, TIRED, back = 7))),
-        Row(4, 22, 50, 61, listOf(i(1), c(1), c(2, BORED))),
+        // 15단계: Lv.3 "5분만 더 보기" 뒤 Lv.4 캐릭터를 대부분 탭으로 치우고 계속 본다
+        Row(4, 22, 50, 61, listOf(i(1), c(1), c(2, BORED), c(3), tap4(), tap4(), drag4(), tap4())),
         Row(3, 23, 30, 47, listOf(c(1), i(2), s(2, BORED, back = 12))),
         Row(2, 23, 15, 55, listOf(i(1), c(2, TIRED), s(2, TIRED, back = 5))),
         Row(2, 20, 40, 11, listOf(c(1))),
@@ -188,7 +195,8 @@ object DemoSeedData {
                     isSeed = true,
                     returnStatus = r.returnStatus,
                     shortsReturnMs = r.backMinutes?.times(MS_PER_MINUTE),
-                    appReturnMs = r.appMinutes?.times(MS_PER_MINUTE)
+                    appReturnMs = r.appMinutes?.times(MS_PER_MINUTE),
+                    dismissal = r.dismissal
                 )
             }
         }
@@ -259,7 +267,8 @@ object DemoSeedData {
         return out
     }
 
-    private const val MAX_LEVEL = 3
+    /** 예시 연속 기록 판정의 최대 단계: 기본값(15단계부터 4) */
+    private val MAX_LEVEL = com.example.shortsdetector.intervention.InterventionPolicyBounds.MAX_LEVEL
 
     private const val EndReason = "EXIT_CONFIRMED"
 }

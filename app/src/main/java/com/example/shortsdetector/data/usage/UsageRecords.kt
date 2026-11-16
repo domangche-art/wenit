@@ -58,6 +58,15 @@ enum class InterventionMethod {
 
 enum class InterventionAction { OPEN_APP, DISMISS }
 
+/** Lv.4 캐릭터를 치운 방법(15단계). 결과는 계속 보기(CONTINUED)이고 이 값은 방법만 남긴다. */
+enum class CharacterDismissal {
+    /** 정해진 횟수만큼 탭했다 */
+    TAP,
+
+    /** 끌어서 화면 밖으로 밀어냈다 */
+    DRAG
+}
+
 /** 개입 뒤 사용자 행동. [InterventionAction](버튼 반응)과 별개로, 단계 규칙과 멈춤 비율 통계의 입력이다. */
 enum class InterventionOutcome {
     STOPPED,
@@ -109,7 +118,7 @@ data class InterventionRecord(
     /** 사용자 반응. 반응 없이 팝업이 사라지면 null. */
     val userAction: InterventionAction? = null,
     val actionAtMs: Long? = null,
-    /** 개입 시점의 단계(1~3). DB 버전 1 에서 올라온 기록은 단계를 모르므로 null. */
+    /** 개입 시점의 단계(1~4). DB 버전 1 에서 올라온 기록은 단계를 모르므로 null. */
     val level: Int? = null,
     val userReason: InterventionUserReason? = null,
     /** 아직 결과가 없으면 null */
@@ -123,7 +132,9 @@ data class InterventionRecord(
     /** 멈춘 뒤 다음 숏폼 세션까지 걸린 시간 */
     val shortsReturnMs: Long? = null,
     /** 멈춘 뒤 숏폼 없이 대상 앱을 처음 열기까지 걸린 시간 */
-    val appReturnMs: Long? = null
+    val appReturnMs: Long? = null,
+    /** Lv.4 캐릭터를 치운 방법(DB 버전 10). Lv.4 계속 보기가 아니면 null */
+    val dismissal: CharacterDismissal? = null
 )
 
 /**

@@ -57,8 +57,9 @@ class InterventionLevelRulesTest {
     }
 
     @Test
-    fun `level 3 is the ceiling`() {
-        assertEquals(3, run(policy(3), CONTINUED, CONTINUED, IGNORED).policy.level)
+    fun `level 3 is the ceiling when the max level is 3`() {
+        // 15단계: 기본 최대 단계는 4. 최대 3 을 고른 사용자에게는 Lv.3 이 그대로 마지막 단계다
+        assertEquals(3, run(policy(3).copy(maxLevel = 3), CONTINUED, CONTINUED, IGNORED).policy.level)
     }
 
     @Test
@@ -84,7 +85,7 @@ class InterventionLevelRulesTest {
     @Test
     fun `out of range input is clamped before the rule runs`() {
         val s = InterventionLevelRules.next(InterventionPolicy(level = 42), LevelStreaks(), CONTINUED)
-        assertEquals(3, s.policy.level)
+        assertEquals(InterventionLevels.MAX, s.policy.level)     // 15단계부터 4
         assertFalse(s.levelChanged)
     }
 

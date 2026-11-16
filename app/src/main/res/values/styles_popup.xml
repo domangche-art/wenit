@@ -46,6 +46,36 @@
         <item name="android:windowExitAnimation">@anim/character_pop_out</item>
     </style>
 
+    <!--
+      15단계 Lv.4 캐릭터 창. 14-2단계와 같은 방식(시스템이 창에 적용). 등장은 떨어지기, 퇴장은 치운 방법에 따라 고른다:
+      탭으로 치우면 튕겨 나가기, 끌어내면 흐려지기. 개입이 다른 이유로 닫힐 때(그만 볼게·이탈)는 기본 퇴장(Drop 의 exit)이다.
+    -->
+    <style name="CharacterLv4DropWindowAnimation">
+        <item name="android:windowEnterAnimation">@anim/character_drop_in</item>
+        <item name="android:windowExitAnimation">@anim/character_pop_out</item>
+    </style>
+
+    <style name="CharacterLv4FlingWindowAnimation">
+        <item name="android:windowEnterAnimation">@anim/character_drop_in</item>
+        <item name="android:windowExitAnimation">@anim/character_fling_out</item>
+    </style>
+
+    <style name="CharacterLv4DragOutWindowAnimation">
+        <item name="android:windowEnterAnimation">@anim/character_drop_in</item>
+        <item name="android:windowExitAnimation">@anim/character_drag_out</item>
+    </style>
+
+    <!-- 15단계 Lv.4 막 위 버튼: 버튼 줄이 아니라 가운데에 한 개씩 놓는다 -->
+    <style name="PopupButton.Primary.Lv4">
+        <item name="android:layout_width">@dimen/lv4_button_width</item>
+        <item name="android:layout_weight">0</item>
+    </style>
+
+    <style name="PopupButton.Secondary.Lv4">
+        <item name="android:layout_width">@dimen/lv4_button_width</item>
+        <item name="android:layout_weight">0</item>
+    </style>
+
     <style name="PopupOption">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">@dimen/popup_option_height</item>

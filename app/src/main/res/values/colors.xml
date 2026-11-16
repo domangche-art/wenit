@@ -16,4 +16,8 @@
     <color name="breathing_scrim">#E6000000</color>
     <color name="breathing_text">#FFFFFFFF</color>
     <color name="breathing_text_secondary">#FFD0D3D8</color>
+    <!-- 15단계 Lv.4 막: 영상이 비쳐 보이는 정도(검정 60%). 숨 고르기(90%)보다 옅다 -->
+    <color name="lv4_scrim">#99000000</color>
+    <color name="lv4_bubble_bg">#FFFFFFFF</color>
+    <color name="lv4_bubble_text">#FF1F2328</color>
 </resources>

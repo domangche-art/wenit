@@ -13,7 +13,13 @@ enum class InterventionKind {
     QUESTION,
 
     /** 전체 화면 숨 고르기. 카운트다운 동안 시청시간을 멈춘다 */
-    BREATHING
+    BREATHING,
+
+    /**
+     * 캐릭터 방해(15단계). 화면 전체를 반투명 막으로 덮어 터치를 막고, 가운데 큰 캐릭터를 탭하거나 끌어내야 막이 닫힌다.
+     * 시간 제한으로 닫히지 않는다. 대상 앱을 떠나면 서비스가 바로 닫는다(INTERRUPTED).
+     */
+    CHARACTER_BLOCK
 }
 
 /**
@@ -30,7 +36,7 @@ enum class OverlayWindow {
 
     /**
      * 내용 크기의 창을 원하는 곳에 띄운다. 창 위 터치만 받고 나머지는 아래 앱으로 전달하며, 끌어서 옮길 수 있다.
-     * 캐릭터 단계를 위해 준비했고 아직 쓰는 단계가 없다. TODO: VERIFY ON DEVICE
+     * 개입 옆 캐릭터(11단계)와 Lv.4 캐릭터 창이 쓴다. 개입 단계 자체의 창으로 쓰는 단계는 없다. TODO: VERIFY ON DEVICE
      */
     FLOATING
 }
@@ -79,7 +85,7 @@ object InterventionLevels {
     val ALL: List<InterventionLevelSpec> = listOf(
         InterventionLevelSpec(
             1, InterventionKind.NOTICE, OverlayWindow.CARD, R.layout.overlay_intervention_lv1,
-            EscalationRule.AFTER_SKIPS, null, "Lv.1 가벼운 알림",
+            EscalationRule.AFTER_SKIPS, R.string.settings_max_level_1, "Lv.1 가벼운 알림",
             pausesOnShow = true
         ),
         InterventionLevelSpec(
@@ -89,8 +95,14 @@ object InterventionLevels {
         ),
         InterventionLevelSpec(
             3, InterventionKind.BREATHING, OverlayWindow.FULL_SCREEN, R.layout.overlay_intervention_lv3,
-            EscalationRule.NONE, R.string.settings_max_level_3, "Lv.3 10초 숨 고르기",
+            EscalationRule.ON_CONTINUE, R.string.settings_max_level_3, "Lv.3 10초 숨 고르기",
             promisesMoreTime = true
+        ),
+        // 15단계. Lv.3 에서 "5분만 더 보기"를 고른 뒤에도 계속 보면 오른다. 띄우는 순간 영상을 멈춘다.
+        InterventionLevelSpec(
+            4, InterventionKind.CHARACTER_BLOCK, OverlayWindow.FULL_SCREEN, R.layout.overlay_intervention_lv4,
+            EscalationRule.NONE, R.string.settings_max_level_4, "Lv.4 캐릭터가 화면을 막고, 탭해서 치워야 계속 볼 수 있음",
+            pausesOnShow = true
         )
     )
 

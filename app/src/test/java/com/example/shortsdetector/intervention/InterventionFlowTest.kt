@@ -279,11 +279,12 @@ class InterventionFlowTest {
         assertEquals(3, two.nextLevel)
         show(); val three = coordinator.respond(CONTINUED)!!
         assertEquals(DemoMode.MORE_TIME_MS, three.reinterveneAfterWatchMs)
+        assertEquals(4, three.nextLevel)       // 15단계: Lv.3 에서 계속 보면 Lv.4
 
-        assertEquals(3, effective().policy.level)
+        assertEquals(4, effective().policy.level)
         assertEquals(saved, InterventionPolicyPreferences.read(prefs))
         val changes = store.recentPolicyChanges(10)
-        assertEquals(2, changes.size)
+        assertEquals(3, changes.size)
         assertTrue(changes.all { it.isDemo && it.source == PolicyChangeSource.RULE })
 
         InterventionPolicyPreferences.writeDemoMode(prefs, false)

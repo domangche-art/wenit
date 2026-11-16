@@ -255,7 +255,7 @@ class InterventionStep5Test {
 
     @Test
     fun `migration 3 to 4 only adds the column`() {
-        assertEquals(9, UsageSchema.VERSION)
+        assertEquals(10, UsageSchema.VERSION)     // 15단계: dismiss_method 추가
         assertEquals(listOf("ALTER TABLE sessions ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0"), UsageSchema.MIGRATE_3_TO_4)
     }
 
@@ -273,7 +273,7 @@ class InterventionStep5Test {
         assertEquals(InterventionPolicy(), start)
         assertEquals(180_000, start.thresholdMs)
         assertEquals(1, start.level)
-        assertEquals(3, start.maxLevel)
+        assertEquals(4, start.maxLevel)     // 15단계: 기본 최대 단계 4
         assertEquals(LevelStreaks(), streaks())
     }
 

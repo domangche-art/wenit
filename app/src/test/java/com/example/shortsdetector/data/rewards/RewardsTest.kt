@@ -348,7 +348,7 @@ class RewardsTest {
 
     @Test
     fun `schema 8 adds the two tables without touching old ones`() {
-        assertEquals(9, UsageSchema.VERSION)
+        assertEquals(10, UsageSchema.VERSION)     // 15단계: dismiss_method 추가
         assertEquals(2, UsageSchema.MIGRATE_7_TO_8.size)
         assertTrue(UsageSchema.MIGRATE_7_TO_8.all { it.startsWith("CREATE TABLE") })
         assertTrue(UsageSchema.MIGRATE_7_TO_8[0].contains("day_results") && UsageSchema.MIGRATE_7_TO_8[0].contains("PRIMARY KEY (epoch_day, is_seed)"))

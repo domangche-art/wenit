@@ -200,7 +200,7 @@ class AndroidAppRepository(context: Context) : AppRepository {
 
     override fun resolvedPolicy() = InterventionPolicyPreferences.resolve(app)
 
-    override fun setMaxLevel(level: Int) = InterventionPolicyPreferences.save(app, savedPolicy().copy(maxLevel = level))
+    override fun setMaxLevel(level: Int) = InterventionPolicyPreferences.saveUserMaxLevel(app, level)
 
     override fun setThreshold(ms: Long) {
         val change = InterventionCoordinator.userThresholdChange(

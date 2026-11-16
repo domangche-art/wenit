@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 15단계 Lv.4: 끌어서 화면 밖으로 밀어낸 캐릭터가 사라질 때(창 애니메이션, 0.15초). 이미 화면 밖이라 짧게 흐려지기만 한다 -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="150"
+    android:fromAlpha="1.0"
+    android:interpolator="@android:anim/accelerate_interpolator"
+    android:toAlpha="0.0" />

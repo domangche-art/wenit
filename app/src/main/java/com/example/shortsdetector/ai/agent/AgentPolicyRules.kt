@@ -12,6 +12,12 @@ object AgentPolicyBounds {
     /** 한 번 실행에서 바꿀 수 있는 폭 */
     const val THRESHOLD_STEP_RATIO = 0.5
     const val LEVEL_STEP = 1
+
+    /**
+     * 에이전트가 정할 수 있는 시작 단계의 상한(15단계). 캐릭터 방해(Lv.4)는 Lv.3 에서 계속 보기를 고른 뒤에만
+     * 규칙으로 오른다. 처음부터 Lv.4 로 시작하지 않게 한다.
+     */
+    const val MAX_START_LEVEL = 3
 }
 
 data class AgentProposal(
@@ -42,7 +48,7 @@ object AgentPolicyRules {
             cooldownMs = (p.cooldownSec * MS_PER_SECOND).coerceIn(b.COOLDOWN_MS),
             level = p.startLevel
                 .coerceIn(current.level - b.LEVEL_STEP, current.level + b.LEVEL_STEP)
-                .coerceIn(InterventionPolicyBounds.MIN_LEVEL, current.maxLevel)
+                .coerceIn(InterventionPolicyBounds.MIN_LEVEL, minOf(current.maxLevel, b.MAX_START_LEVEL))
         ).clamped()
     }
 

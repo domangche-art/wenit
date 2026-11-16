@@ -216,7 +216,7 @@ class AllowanceTest {
 
     @Test
     fun `schema 9 adds the allowance table without touching old tables`() {
-        assertEquals(9, UsageSchema.VERSION)
+        assertEquals(10, UsageSchema.VERSION)     // 15단계: dismiss_method 추가
         assertEquals(2, UsageSchema.MIGRATE_8_TO_9.size)
         assertTrue(UsageSchema.MIGRATE_8_TO_9[0].startsWith("CREATE TABLE allowance_uses"))
         assertTrue(UsageSchema.MIGRATE_8_TO_9[1].startsWith("CREATE INDEX"))

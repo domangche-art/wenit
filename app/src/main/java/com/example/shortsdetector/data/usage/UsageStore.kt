@@ -18,6 +18,9 @@ interface UsageStore {
     /** 이미 결과가 기록된 개입은 바꾸지 않는다(첫 결과만 남김). */
     fun setInterventionOutcome(id: String, outcome: InterventionOutcome, reason: InterventionUserReason?)
 
+    /** Lv.4 캐릭터를 치운 방법(15단계). 이미 기록된 개입은 바꾸지 않는다(첫 값만 남김). */
+    fun setInterventionDismissal(id: String, dismissal: CharacterDismissal)
+
     /**
      * 보여 줬지만 결과가 없는 개입을 IGNORED 로 닫는다(프로세스 종료 등으로 끝맺지 못한 경우). 닫은 개수를 돌려준다.
      * 쿨다운·상한으로 생략했거나 실패한 기록, 단계 개념이 없던 DB 버전 1 기록은 건드리지 않는다.
@@ -100,6 +103,11 @@ class InMemoryUsageStore : UsageStore {
     ) {
         val r = interventions[id] ?: return
         if (r.outcome == null) interventions[id] = r.copy(outcome = outcome, userReason = reason)
+    }
+
+    @Synchronized override fun setInterventionDismissal(id: String, dismissal: CharacterDismissal) {
+        val r = interventions[id] ?: return
+        if (r.dismissal == null) interventions[id] = r.copy(dismissal = dismissal)
     }
 
     @Synchronized override fun ignoreUnansweredInterventions(): Int {

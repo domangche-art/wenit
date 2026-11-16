@@ -124,7 +124,7 @@ class InterventionBehaviorTest {
         val b = behavior(List(4) { record(level = 1, hour = 23) } + record(level = 2, hour = 23) + record(level = 1, hour = 9))
         val night = b.continuedBySlot.first { it.slot == WatchTimeSlot.LATE_NIGHT }
         assertEquals(5, night.samples)
-        assertEquals(listOf(1 to 4, 2 to 1, 3 to 0), night.levels)
+        assertEquals(listOf(1 to 4, 2 to 1, 3 to 0, 4 to 0), night.levels)   // 15단계: 단계 목록에 Lv.4 가 함께 나온다
         assertEquals(1, b.continuedBySlot.first { it.slot == WatchTimeSlot.MORNING }.samples)
     }
 

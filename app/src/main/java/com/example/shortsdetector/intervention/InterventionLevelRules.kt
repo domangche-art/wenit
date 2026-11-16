@@ -11,7 +11,7 @@ data class LevelStep(val policy: InterventionPolicy, val streaks: LevelStreaks, 
  * 개입 단계 규칙. 결정론적이고 Android 의존성이 없다. 같은 입력이면 같은 결과다.
  *
  *  - 상승은 단계마다 [EscalationRule] 을 따른다. 정책의 maxLevel 위로는 올라가지 않는다.
- *    Lv.1 은 넘김(CONTINUED / IGNORED)이 연속 escalateAfterSkips 번, Lv.2 는 CONTINUED 한 번이다.
+ *    Lv.1 은 넘김(CONTINUED / IGNORED)이 연속 escalateAfterSkips 번, Lv.2·Lv.3 은 CONTINUED 한 번이다(Lv.3 → Lv.4 는 15단계).
  *  - STOPPED 가 연속 deescalateAfterStops 번이면 한 단계 내린다(Lv.1 이 바닥).
  *  - INTERRUPTED 는 사용자의 반응이 아니므로 단계도 연속 횟수도 바꾸지 않는다.
  *  - ALLOWANCE(허용 시간 선택)는 사용자가 정한 시간을 쓰는 것이라 넘김으로 세지 않는다. 단계도 연속 횟수도 바꾸지 않는다.

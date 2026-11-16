@@ -17,6 +17,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.example.shortsdetector.data.DetectionPreferences
 import com.example.shortsdetector.data.InterventionPolicyPreferences
 import com.example.shortsdetector.data.usage.BackgroundUsageStore
+import com.example.shortsdetector.data.usage.CharacterDismissal
 import com.example.shortsdetector.data.goal.Goal
 import com.example.shortsdetector.data.goal.GoalPreferences
 import com.example.shortsdetector.data.usage.DailyUsageCalculator
@@ -47,6 +48,7 @@ import com.example.shortsdetector.intervention.InterventionCopyInput
 import com.example.shortsdetector.intervention.InterventionPopup
 import com.example.shortsdetector.intervention.character.CharacterOverlay
 import com.example.shortsdetector.intervention.InterventionResult
+import com.example.shortsdetector.intervention.LeaveGuard
 import com.example.shortsdetector.intervention.MaxLevelRepeatRule
 import com.example.shortsdetector.intervention.LiveRecordFilter
 import com.example.shortsdetector.intervention.NotificationTaps
@@ -102,7 +104,11 @@ class ShortsDetectionService : AccessibilityService() {
         DetectionConfig.MIN_RENOTIFY_INTERVAL_MS
     )
     private val snapshotter = AccessibilitySnapshotter(DetectionConfig.MAX_NODES_VISITED)
-    private val popup = InterventionPopup(this, CharacterOverlay(this) { DetectionPreferences.isCharacterEnabled(this) })
+    private val popup = InterventionPopup(
+        this,
+        CharacterOverlay(this, { DetectionPreferences.isCharacterEnabled(this) }, { DetectionPreferences.selectedCharacter(this) }),
+        { DetectionPreferences.selectedCharacter(this) }
+    )
 
     /** 팝업이 닫힌 뒤 재생 안내(14단계) */
     private val resumeHint by lazy { ResumeHintOverlay(this) }
@@ -119,7 +125,7 @@ class ShortsDetectionService : AccessibilityService() {
     /** 사용자가 직접 멈춘 영상 판정. 앱이 멈춘 경우([PlaybackPauser.pausedByApp])와 따로 둔다. */
     private val userPause = UserPauseDetector()
 
-    /** 앱이 개입하면서 영상을 멈추게 했거나 화면을 덮은 상태(Lv.1·2 팝업, Lv.3 카운트다운) */
+    /** 앱이 개입하면서 영상을 멈추게 했거나 화면을 덮은 상태(Lv.1·2·4 팝업, Lv.3 카운트다운) */
     private val appHold = AppHold()
 
     /** 쇼츠 복귀를 시청이 확정된 경우만 기록한다. */
@@ -619,6 +625,10 @@ class ShortsDetectionService : AccessibilityService() {
         if (output.exitSignalStarted && popup.isShowing) {
             Log.i(TAG, "[$source] 이탈 신호: 개입 오버레이 닫음")
             interruptIntervention()
+        } else if (LeaveGuard.closeBlocking(popup.isBlockingCharacter, output.observation.window)) {
+            // Lv.4 는 시간 제한 없이 터치를 막는다. 이탈 신호(상태 전환)를 놓쳐도 활성 창이 대상 앱이 아니면 바로 닫는다.
+            Log.i(TAG, "[$source] 대상 앱이 아닌 창(${output.observation.window}): Lv.4 막 닫음")
+            interruptIntervention()
         }
         if (output.cancelNotification) {
             ShortsNotifier.cancel(this)
@@ -810,7 +820,7 @@ class ShortsDetectionService : AccessibilityService() {
             engine.setRepeatFloor(MaxLevelRepeatRule.gapAfterShowing(level, resolved))
         }
         engine.setInterventionOpen(popupShown, atMs)
-        // Lv.1·2 팝업은 띄우는 순간 영상을 멈춘다(12단계). 알림 방식은 멈추지 않는다. 다시 재생은 사용자가 한다.
+        // Lv.1·2·4 팝업은 띄우는 순간 영상을 멈춘다(12·15단계). 알림 방식은 멈추지 않는다. 다시 재생은 사용자가 한다.
         if (popupShown && InterventionLevels.of(level).pausesOnShow) {
             appHold.cardOpen = true
             syncWatchHold()
@@ -839,14 +849,14 @@ class ShortsDetectionService : AccessibilityService() {
             coordinator?.let { c -> guarded { c.chooseReason(reason) } }
         }
 
-        override fun onResponse(outcome: InterventionOutcome) {
+        override fun onResponse(outcome: InterventionOutcome, dismissal: CharacterDismissal?) {
             val c = coordinator ?: return
             guarded {
                 appHold.cardOpen = false
                 syncWatchHold()
-                val result = c.respond(outcome) ?: return@guarded
+                val result = c.respond(outcome, dismissal) ?: return@guarded
                 onFinished(result)
-                Log.i(TAG, "개입 반응: Lv.${result.level} $outcome → Lv.${result.nextLevel}")
+                Log.i(TAG, "개입 반응: Lv.${result.level} $outcome${dismissal?.let { "($it)" }.orEmpty()} → Lv.${result.nextLevel}")
                 if (outcome == InterventionOutcome.ALLOWANCE) startAllowance(result.level)
                 if (outcome != InterventionOutcome.STOPPED) scheduleResumeHint(outcome)
                 val again = result.reinterveneAfterWatchMs ?: return@guarded

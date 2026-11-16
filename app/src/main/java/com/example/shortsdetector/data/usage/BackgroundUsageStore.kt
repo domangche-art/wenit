@@ -41,6 +41,8 @@ class BackgroundUsageStore(private val delegate: UsageStore) : UsageStore by del
         write("action") { delegate.setInterventionAction(id, action, atMs) }
     override fun setInterventionOutcome(id: String, outcome: InterventionOutcome, reason: InterventionUserReason?) =
         write("outcome") { delegate.setInterventionOutcome(id, outcome, reason) }
+    override fun setInterventionDismissal(id: String, dismissal: CharacterDismissal) =
+        write("dismissal") { delegate.setInterventionDismissal(id, dismissal) }
     override fun ignoreUnansweredInterventions(): Int { write("ignore") { delegate.ignoreUnansweredInterventions() }; return 0 }
     override fun setInterventionReturn(id: String, status: InterventionReturn?, shortsReturnMs: Long?, appReturnMs: Long?) =
         write("return") { delegate.setInterventionReturn(id, status, shortsReturnMs, appReturnMs) }

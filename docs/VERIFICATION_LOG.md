@@ -1537,3 +1537,99 @@ SM-S906N, One UI 8.0. 이 PC 키 서명 디버그 빌드. 00:30~01:30 시험. �
 
 - 프레임이 멈춘 동안 팝업 카드 안의 갱신(Lv.2 이유 선택 표시, Lv.3 카운트다운 숫자·버튼 등장)은 프레임이 올 때까지 늦을 수 있다. 원인을 못 고쳐 지연 경고 로그만 남긴다
 - 개입이 닫힐 때 캐릭터가 바로 없어지지 않고 0.16초 퇴장 애니메이션으로 사라진다(창 애니메이션을 쓰면서 생긴 차이)
+
+## 15단계: 개입 Lv.4 "캐릭터 방해" (2026-11-16)
+
+> **실기기 미검증.** 실기기와 에뮬레이터를 쓸 수 없어 빌드와 단위 테스트까지만 했다. 아래 화면·터치·소리·다크 모드 동작은 하나도 기기에서 확인하지 않았다. 확인할 항목은 맨 아래 체크리스트에 있다.
+
+### 설계(만들기 전 구조 확인 결과)
+
+| 확인한 기존 구조 | 재사용·변경 |
+|---|---|
+| `InterventionLevels`(10단계): 단계 번호·종류·창·레이아웃·상승 규칙·설정 선택지의 단일 정의. 범위·통계·에이전트 프롬프트가 이 목록을 따름 | Lv.4 한 줄 추가(`CHARACTER_BLOCK`, `FULL_SCREEN`, `pausesOnShow`). Lv.3 상승 규칙 `NONE` → `ON_CONTINUE`. Lv.1 에도 설정 문구를 줘서 선택지 1~4. 통계(`levelOutcomes`·`levelRates`·`levelStopRates`)와 에이전트 프롬프트의 단계 설명은 목록을 따라 자동으로 Lv.4 를 포함 |
+| `InterventionPopup` 의 `Screen`/`Host`(10단계에 "탭·끌기로 치우는 화면은 Host 를 쓴다"로 준비됨) | Lv.4 화면(`characterBlockScreen`) 추가. `Host.answer` 에 치운 방법을 더함. Lv.4 는 옆 캐릭터(11단계)를 붙이지 않음 |
+| `CharacterOverlay`(11단계)·창 애니메이션(14-2단계) | `showBlocking` 추가: 막 안의 빈 자리(`lv4CharacterSlot`)에 맞춘 별도 창. 등장(떨어지기)·퇴장(튕겨 나가기/흐려지기)은 창 애니메이션, 뷰는 처음부터 보이는 모습. 흔들림은 `ObjectAnimator` 회전 0→…→0(쉬는 모습에서 시작·끝). 끌기는 창 위치 이동 |
+| `PlaybackPauser`·`AppHold.cardOpen`(12단계) | `pausesOnShow=true` 로 서비스의 기존 경로가 그대로 멈춤(앱이 멈춘 것으로 구분) |
+| 이탈 신호로 오버레이 닫기(`exitSignalStarted` → `interruptIntervention`) | 그대로 쓰고, Lv.4 만 `LeaveGuard` 추가: 관찰마다 활성 창이 FOREIGN·SYSTEM_PANEL 이면 닫음(이탈 신호가 이미 지나간 상태에서 Lv.4 가 떠도 닫히게) |
+| `ReinterventionRule`·`MaxLevelRepeatRule` | 변경 없음. Lv.3 의 5분 약속 뒤 Lv.4, Lv.4 는 최대 단계라 2분 반복(시연 제외) |
+| `InterventionCoordinator`·`UsageStore` | `respond(outcome, dismissal)`. 치운 방법은 DB 버전 10 `interventions.dismiss_method`(nullable) |
+| `ResumeHintRule`(14단계) | 변경 없음. Lv.4 계속 보기·허용 시간 뒤 같은 조건으로 표시 |
+| 캐릭터 정보가 코드 곳곳(`R.drawable.wenit_character` 직접 참조) | `intervention/character/Characters.kt` 한 곳으로 모음. 옆 캐릭터도 고른 캐릭터의 기본 그림을 씀 |
+
+### 구현
+
+| 항목 | 내용 | 파일 |
+|---|---|---|
+| 단계 | Lv.4 추가, Lv.3 → Lv.4(계속 보기), 상승 이유 문구 "더 보기를 골라서 다음엔 캐릭터가 화면을 막을게요" | `InterventionLevels.kt`, `InterventionCopy.kt`, `strings.xml` |
+| 최대 단계 | 선택지 1~4, 기본 4. 한 번만 도는 이전: 저장값이 옛 기본 3 이고 고른 표시가 없으면 4, 2 는 유지(고른 표시 남김). 설정 화면에서 고르면 `max_level_user_set` | `InterventionPolicyPreferences.kt`, `InterventionPolicy.kt`, `AppRepository.kt` |
+| 에이전트 | 시작 단계 상한 3(`AgentPolicyBounds.MAX_START_LEVEL`), 프롬프트 범위 문구 | `AgentPolicyRules.kt`, `PolicyAgent.kt` |
+| Lv.4 화면 | 반투명 막(검정 60%, clickable 로 터치 막음), 제목, 말풍선(대사 없으면 숨김), 캐릭터 자리, 남은 탭 수, "그만 볼게", 허용 시간 버튼, 캐릭터를 못 띄우면 "계속 보기" 버튼. 막 창 강제 다크 끔 | `overlay_intervention_lv4.xml`, `InterventionPopup.kt`, `colors.xml`, `dimens.xml`, `styles_popup.xml`, `bg_lv4_bubble.xml` |
+| Lv.4 캐릭터 | 너비 = 화면 50%(높이 40% 초과 시 축소), 떨어지는 등장(0.6초, bounce), 탭마다 흔들림(0.36초), 마지막 탭에 튕겨 나감(0.35초), 끌어서 가운데가 화면 밖이면 치움(아니면 제자리), 끌기 창은 `FLAG_LAYOUT_NO_LIMITS`. TalkBack 두 번 탭도 탭으로 셈 | `CharacterOverlay.kt`, `Characters.kt`(`Lv4CharacterRules`), `res/anim/character_drop_in.xml`·`character_fling_out.xml`·`character_drag_out.xml` |
+| 결과 기록 | 탭/끌기 = CONTINUED + `dismiss_method`, 그만 볼게 = STOPPED(OPEN_APP), 허용 시간 = ALLOWANCE, 떠남 = INTERRUPTED(단계·연속 횟수 그대로) | `InterventionCoordinator.kt`, `UsageRecords.kt`, `UsageSchema.kt`(버전 10), `UsageDatabase.kt`, `UsageStore.kt`, `BackgroundUsageStore.kt` |
+| 떠나면 닫기 | 이탈 신호 + `LeaveGuard`(FOREIGN·SYSTEM_PANEL) | `LeaveGuard.kt`, `ShortsDetectionService.kt` |
+| 캐릭터 정의 | id·이름·성격·기본 그림·Lv.4 그림·Lv.4 행동 값·대사. `kind`/"다정이"/`wenit_character`/탭 3/대사 없음. 고른 캐릭터 저장값 `selected_character`(고르는 화면 없음) | `Characters.kt`, `DetectionPreferences.kt` |
+| 시드 | A 의 4일 전 22:50 세션(61분)에 Lv.3 계속 보기 1건 + Lv.4 4건(탭 3, 끌기 1, 모두 계속 보기). B 는 그대로. 시드 연속 기록 판정 최대 단계 3 → 기본값(4) | `DemoSeedData.kt` |
+
+### 데이터와 연결 확인(단위 테스트)
+
+| 항목 | 결과 |
+|---|---|
+| 단계별 집계(`levelOutcomes`, `behavior.levelRates`, 주간 `levelStopRates`) | `MIN..MAX` 를 돌므로 Lv.4 가 함께 나온다. 시간대별 계속 보기(`SlotContinued.levels`)도 (4, n) 이 붙는다 |
+| 에이전트 입력 | 위 집계와 `policy.maxLevel`(4)이 그대로 들어간다. 프롬프트의 단계 설명에 Lv.4 가 자동으로 들어간다 |
+| 목표 "최대 단계까지 가지 않은 날" | 지금 최대 단계 설정을 따른다. 기본(4)에서는 Lv.3 까지만 본 날이 달성, Lv.4 를 본 날은 실패. 최대 3 사용자는 전과 같다 |
+| 시연 모드 | 1 → 2 → 3 → 4 를 짧은 간격으로 오르고 Lv.4 를 반복한다(Lv.3 뒤는 30초, 그 뒤 기준 10초) |
+
+### 자동화 테스트
+
+`GRADLE_USER_HOME=C:\gradle-home-wenit gradlew :app:assembleDebug :app:testDebugUnitTest --rerun-tasks --offline`: 빌드 성공, **630건 통과, 실패 0, 오류 0, 건너뜀 0**(14-2단계 598).
+
+- 추가 32건: `InterventionStep15Test` 29건(Lv.4 정의, Lv.3 → Lv.4 와 다른 답은 안 오름, Lv.4 유지·하강, 기본 정책 1→1→2→3→4, 최대 단계 1~4 각각의 상한, 옛 기본 3 → 4·고른 2 유지·고른 3 유지·한 번만, 새 설치, 에이전트 시작 단계 ≤3, 탭·끌기·그만·허용 시간·이탈 기록, Lv.4 반복 간격, LeaveGuard, 캐릭터 정의·기본값·Lv.4 그림 선택·탭 수·말풍선·크기·끌기 판정, 집계·목표·시드, 스키마 10, 화면 구조), `InterventionRepeatTest` 3건(기본 정책 한 세션 Lv.4 까지 오르고 2분 간격 반복, 시연 1→4, Lv.4 이탈은 단계 유지)
+- 기존 테스트 중 바뀐 기대값(동작 변경이 명세대로라 기대값을 고침, 테스트는 빼지 않음): 스키마 버전 9 → 10(5건), 기본 최대 단계 3 → 4(정책·리셋·코덱·범위 5건), Lv.3 상승 규칙 NONE → ON_CONTINUE, 최대 단계 선택지에 Lv.1, 시연 오르기 끝 단계 3 → 4, 시간대별 단계 목록에 (4, 0), 시드 A 최근 7일 개입 22 → 27
+- Lv.1~3 "최대 단계 반복"을 지키던 테스트 6건은 `maxLevel = 3` 을 명시해 최대 3 사용자의 기존 동작을 그대로 검사한다(Lv.4 는 새 테스트가 검사)
+
+### 실기기 결과
+
+없음(기기 없음).
+
+### 실기기에서 확인할 것(체크리스트)
+
+- [ ] 다음 기기 연결 때 먼저: 14-2단계 "복원" 항목(에이전트 조절 `enabled=false` 등) 확인·복원
+- [ ] 기존 설치 위에 업데이트: 설정의 최대 단계가 4 로 바뀌는지(이전 값 3), 2 였다면 2 로 남는지. DB 9 → 10 업그레이드 뒤 기존 기록이 그대로인지
+- [ ] Lv.4 등장 애니메이션: 위에서 떨어져 통통 튐(0.6초), 화면 너비 절반 크기, 막 가운데
+- [ ] 막이 넘기기(위로 스와이프)·영상 탭·좋아요 등 YouTube 버튼을 막는지. 막 뒤로 영상이 비쳐 보이는지
+- [ ] 탭할 때마다 흔들림과 남은 횟수("캐릭터를 2번/1번 눌러 치우기")
+- [ ] 3번째 탭에 위로 튕겨 나가며 사라지고 막이 닫힘 → 기록 CONTINUED/TAP
+- [ ] 끌어내기: 가운데가 화면 밖으로 나가게 놓으면 사라짐(CONTINUED/DRAG), 덜 끌면 제자리. 끌 때 창이 손가락을 따라가는지, 화면 가장자리에서 멈추지 않는지(`FLAG_LAYOUT_NO_LIMITS`)
+- [ ] "그만 볼게": 영상 멈춘 채 앱 화면으로 이동(STOPPED)
+- [ ] 허용 시간이 켜져 있을 때 "허용 시간으로 보기" 버튼이 보이고 동작(ALLOWANCE), 꺼져 있으면 안 보임
+- [ ] 홈 버튼·최근 앱·뒤로·다른 앱으로 이동하면 막이 바로 사라짐(INTERRUPTED). 제스처 탐색·3버튼 탐색 둘 다. 알림창·빠른 설정을 내리면 막이 닫히는지, 내려지기는 하는지. 화면을 끄고 잠금 해제했을 때 막이 남지 않는지
+- [ ] 볼륨 키를 누를 때(시스템 볼륨 패널) 막이 닫혀 버리지 않는지
+- [ ] 소리 정지: 뜨는 순간 영상·소리 멈춤, 막이 떠 있는 동안 시청시간이 늘지 않음
+- [ ] 치운 뒤 재생 안내("영상을 탭하면 이어서 볼 수 있어요") 3초, 다시 재생하면 사라짐
+- [ ] 다크 모드·라이트 모드에서 캐릭터·말풍선·글자·버튼이 보임. 실행 중 라이트→다크, 다크→라이트 전환 뒤에도(14-2단계 조건: 앱 화면을 연 적 있는 프로세스). `화면 프레임이 1000ms 넘게 오지 않음` 경고가 나와도 캐릭터가 보이는지
+- [ ] 시연 모드에서 Lv.1 → Lv.4 까지 짧은 간격으로 오르는지
+- [ ] Lv.3 에서 "5분만 더 보기" 뒤 시청 5분에 Lv.4, Lv.4 반복이 2분 이상 간격인지
+- [ ] TalkBack 켠 상태에서 캐릭터 두 번 탭이 탭으로 세지는지
+- [ ] Lv.1~3 화면·동작이 전과 같은지(옆 캐릭터 포함)
+
+### 미검증
+
+| 항목 | 이유 |
+|---|---|
+| 위 체크리스트 전부 | 실기기·에뮬레이터 없음 |
+| 창 애니메이션의 `%p`(떨어지기·튕겨 나가기 거리)가 화면 높이 기준으로 적용되는지 | 기기 확인 필요 |
+| `removeViewImmediate` 뒤에도 퇴장 창 애니메이션이 보이는지 | 14-2단계 퇴장과 같은 방식, Lv.4 퇴장은 미확인 |
+| 막이 떠 있는 동안 YouTube 의 접근성 트리·창 상태 이벤트가 그대로 와서 이탈 판정이 되는지 | Lv.3 과 같은 창 설정이지만 Lv.4 는 오래 떠 있음 |
+
+### 정책·개인정보·성능 리스크
+
+- Lv.4 는 다른 앱 위에서 시간 제한 없이 터치를 막는다. 끄는 방법(최대 단계 3 이하), 시스템 탐색 허용, 떠나면 즉시 닫힘, 캐릭터 실패 시 "계속 보기" 대체로 사용자가 갇히지 않게 했지만, 출시 전 Play 정책(접근성 API 고지·동의, 방해형 오버레이) 재검토가 필요하다(명세 7장에 적음)
+- 기존 사용자 중 최대 단계를 직접 3 으로 골랐던 사람도 4 로 바뀐다(15단계 전에는 고른 기록이 없어 구분 불가)
+- 에이전트가 정책을 바꿀 때 지금 단계가 4 면 시작 단계가 3 으로 내려간다(시작 단계 상한)
+- 저장·전송하는 새 정보는 치운 방법(tap/drag)뿐이다. 대사·화면 내용은 저장하지 않는다
+- 끌기는 터치 이동마다 `updateViewLayout` 을 부른다. 프레임이 멈춘 상태(14-2단계)에서는 끌기·흔들림이 늦게 보일 수 있다
+
+### 남은 문제
+
+- 캐릭터 고르는 화면, 말풍선 대사, Lv.4 전용 그림은 아직 없다(구조만)
+- 14-2단계 남은 문제(프레임 멈춤 동안 오버레이 갱신 지연)는 Lv.4 의 흔들림·남은 횟수 표시에도 해당한다

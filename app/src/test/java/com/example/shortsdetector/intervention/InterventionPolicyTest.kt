@@ -89,7 +89,7 @@ class InterventionPolicyTest {
         InterventionPolicyPreferences.write(p, InterventionPolicy(thresholdMs = 120_000, level = 99))
         val saved = InterventionPolicyPreferences.read(p)
         assertEquals(120_000, saved.thresholdMs)
-        assertEquals(3, saved.level)
+        assertEquals(InterventionPolicyBounds.MAX_LEVEL, saved.level)    // 15단계부터 4
     }
 
     @Test
@@ -101,7 +101,8 @@ class InterventionPolicyTest {
 
         val read = InterventionPolicyPreferences.read(p)
 
-        assertEquals(InterventionPolicy(thresholdMs = 120_000, level = 2, cooldownMs = 60_000), read)
+        // 저장된 maxLevel=3 은 읽기에서 그대로다(기본값 4 로 올리는 것은 한 번만 도는 이전 작업, 15단계)
+        assertEquals(InterventionPolicy(thresholdMs = 120_000, level = 2, cooldownMs = 60_000, maxLevel = 3), read)
         InterventionPolicyPreferences.write(p, read)
         assertFalse("maxDailyInterventions" in p.values["policy"].toString())
     }
@@ -111,7 +112,7 @@ class InterventionPolicyTest {
         val p = FakeSharedPreferences()
         p.values["policy"] = "level=50;cooldownMs=1"
         val read = InterventionPolicyPreferences.read(p)
-        assertEquals(3, read.level)
+        assertEquals(InterventionPolicyBounds.MAX_LEVEL, read.level)     // 15단계부터 4
         assertEquals(InterventionPolicyBounds.COOLDOWN_MS.first, read.cooldownMs)
 
         p.values["policy"] = "garbage"

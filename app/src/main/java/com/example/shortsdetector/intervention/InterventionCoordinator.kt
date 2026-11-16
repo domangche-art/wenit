@@ -2,6 +2,7 @@ package com.example.shortsdetector.intervention
 
 import android.content.SharedPreferences
 import com.example.shortsdetector.data.InterventionPolicyPreferences
+import com.example.shortsdetector.data.usage.CharacterDismissal
 import com.example.shortsdetector.data.usage.InterventionAction
 import com.example.shortsdetector.data.usage.InterventionOutcome
 import com.example.shortsdetector.data.usage.InterventionUserReason
@@ -101,11 +102,15 @@ class InterventionCoordinator(
     fun respondTo(interventionId: String, outcome: InterventionOutcome): InterventionResult? =
         if (pending?.id == interventionId) respond(outcome) else null
 
-    /** @return 끝낼 개입이 없으면 null */
-    fun respond(outcome: InterventionOutcome): InterventionResult? {
+    /**
+     * @param dismissal Lv.4 캐릭터를 치워서 계속 볼 때 치운 방법(15단계). 결과가 CONTINUED 일 때만 남긴다.
+     * @return 끝낼 개입이 없으면 null
+     */
+    fun respond(outcome: InterventionOutcome, dismissal: CharacterDismissal? = null): InterventionResult? {
         val p = pending ?: return null
         pending = null
         store.setInterventionOutcome(p.id, outcome, p.reason)
+        if (dismissal != null && outcome == InterventionOutcome.CONTINUED) store.setInterventionDismissal(p.id, dismissal)
         when (outcome) {
             InterventionOutcome.STOPPED -> store.setInterventionAction(p.id, InterventionAction.OPEN_APP, clock.epochNowMs())
             InterventionOutcome.CONTINUED, InterventionOutcome.ALLOWANCE ->

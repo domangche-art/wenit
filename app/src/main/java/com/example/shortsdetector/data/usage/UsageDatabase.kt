@@ -32,6 +32,7 @@ class UsageDatabase private constructor(context: Context) :
         UsageSchema.MIGRATE_6_TO_7.forEach(db::execSQL)
         UsageSchema.MIGRATE_7_TO_8.forEach(db::execSQL)
         UsageSchema.MIGRATE_8_TO_9.forEach(db::execSQL)
+        UsageSchema.MIGRATE_9_TO_10.forEach(db::execSQL)
     }
 
     /** SQLiteOpenHelper 가 트랜잭션으로 감싸 호출한다. 기존 기록은 지우지 않는다. */
@@ -44,6 +45,7 @@ class UsageDatabase private constructor(context: Context) :
         if (oldVersion < 7) UsageSchema.MIGRATE_6_TO_7.forEach(db::execSQL)
         if (oldVersion < 8) UsageSchema.MIGRATE_7_TO_8.forEach(db::execSQL)
         if (oldVersion < 9) UsageSchema.MIGRATE_8_TO_9.forEach(db::execSQL)
+        if (oldVersion < 10) UsageSchema.MIGRATE_9_TO_10.forEach(db::execSQL)
     }
 
     override fun insertAllowanceUse(record: AllowanceUseRecord) {
@@ -218,6 +220,7 @@ class UsageDatabase private constructor(context: Context) :
             put("return_status", record.returnStatus?.name)
             put("shorts_return_ms", record.shortsReturnMs)
             put("app_return_ms", record.appReturnMs)
+            put("dismiss_method", record.dismissal?.name)
         }
         writableDatabase.insertWithOnConflict("interventions", null, v, SQLiteDatabase.CONFLICT_IGNORE)
     }
@@ -251,6 +254,11 @@ class UsageDatabase private constructor(context: Context) :
             put("user_reason", reason?.name)
         }
         writableDatabase.update("interventions", v, "id = ? AND outcome IS NULL", arrayOf(id))
+    }
+
+    override fun setInterventionDismissal(id: String, dismissal: CharacterDismissal) {
+        val v = ContentValues().apply { put("dismiss_method", dismissal.name) }
+        writableDatabase.update("interventions", v, "id = ? AND dismiss_method IS NULL", arrayOf(id))
     }
 
     override fun insertPolicyChange(record: PolicyChangeRecord) {
@@ -407,6 +415,7 @@ class UsageDatabase private constructor(context: Context) :
         returnStatus = str("return_status")?.let { r -> InterventionReturn.entries.firstOrNull { it.name == r } },
         shortsReturnMs = longOrNull("shorts_return_ms"),
         appReturnMs = longOrNull("app_return_ms"),
+        dismissal = str("dismiss_method")?.let { d -> CharacterDismissal.entries.firstOrNull { it.name == d } },
         isDemo = long("is_demo") != 0L,
         isSeed = long("is_seed") != 0L
     )

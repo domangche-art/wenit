@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  15단계 Lv.4 캐릭터 등장(창 애니메이션). 화면 위에서 떨어져 바닥에 닿으면 통통 튄다(0.6초).
+  14-2단계와 같은 방식: 시스템이 창에 적용하므로 앱 쪽 프레임이 멈춰도 캐릭터 뷰는 처음부터 보이는 모습으로 그려진다.
+  투명에서 시작하지 않는다.
+-->
+<translate xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="600"
+    android:fromYDelta="-100%p"
+    android:interpolator="@android:anim/bounce_interpolator"
+    android:toYDelta="0" />

@@ -40,6 +40,7 @@ class ResourceInterventionCopyProvider(private val context: Context) : Intervent
                 context.getString(R.string.popup_lv3_title),
                 context.getString(R.string.popup_lv3_body, watch)
             )
+            InterventionKind.CHARACTER_BLOCK -> InterventionCopy(context.getString(R.string.popup_lv4_title, watch))
         }
     }
 
@@ -47,6 +48,7 @@ class ResourceInterventionCopyProvider(private val context: Context) : Intervent
         to < from -> context.getString(R.string.level_down, policy.deescalateAfterStops)
         InterventionLevels.of(from).escalation == EscalationRule.AFTER_SKIPS ->
             context.getString(R.string.level_up_to_2, policy.escalateAfterSkips)
+        InterventionLevels.of(to).kind == InterventionKind.CHARACTER_BLOCK -> context.getString(R.string.level_up_to_4)
         else -> context.getString(R.string.level_up_to_3)
     }
 }
@@ -66,7 +68,7 @@ class AgentCopyProvider(
         return when (InterventionLevels.of(input.level).kind) {
             InterventionKind.NOTICE -> agent.lv1Message?.let { InterventionCopy(it, base.title) } ?: base
             InterventionKind.QUESTION -> agent.lv2Question?.let { InterventionCopy(it) } ?: base
-            InterventionKind.BREATHING -> base
+            InterventionKind.BREATHING, InterventionKind.CHARACTER_BLOCK -> base
         }
     }
 }

@@ -12,7 +12,7 @@ import com.example.shortsdetector.data.goal.GoalType
 data class InterventionPolicy(
     /** 개입 기준 시간(세션 안 확정 시청시간) */
     val thresholdMs: Long = DetectionConfig.DEFAULT_WATCH_THRESHOLD_MS,
-    /** 현재 단계 1~3 */
+    /** 현재 단계 1~4 */
     val level: Int = InterventionPolicyBounds.MIN_LEVEL,
     /** Lv.1 에서 몇 번 연속 넘기면 Lv.2 로 올리는가 */
     val escalateAfterSkips: Int = 2,
@@ -20,7 +20,7 @@ data class InterventionPolicy(
     val deescalateAfterStops: Int = 2,
     /** 개입 사이의 간격. 개입 빈도는 이 값으로만 조절한다 */
     val cooldownMs: Long = DetectionConfig.MIN_RENOTIFY_INTERVAL_MS,
-    /** 올라갈 수 있는 최대 단계. 2 면 전체 화면 숨 고르기(Lv.3)를 쓰지 않는다. */
+    /** 올라갈 수 있는 최대 단계 1~4(기본 4, 15단계). 3 이면 캐릭터 방해(Lv.4)를, 2 면 숨 고르기(Lv.3)도 쓰지 않는다. */
     val maxLevel: Int = InterventionPolicyBounds.MAX_LEVEL
 ) {
     /** 모든 값을 하드 범위 안으로 자른다. */

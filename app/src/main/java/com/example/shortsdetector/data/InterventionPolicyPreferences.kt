@@ -32,8 +32,56 @@ object InterventionPolicyPreferences {
     private const val KEY_DEMO_SKIP_STREAK = "demo_skip_streak"
     private const val KEY_DEMO_STOP_STREAK = "demo_stop_streak"
 
+    /** 사용자가 설정 화면에서 최대 단계를 직접 고른 적이 있다(15단계부터 기록). */
+    private const val KEY_MAX_LEVEL_USER_SET = "max_level_user_set"
+
+    /** 15단계 기본값 변경(최대 단계 3 → 4)을 한 번 적용했다 */
+    private const val KEY_MAX_LEVEL_V4_MIGRATED = "max_level_v4_migrated"
+
+    /** 15단계 전의 기본 최대 단계 */
+    internal const val LEGACY_DEFAULT_MAX_LEVEL = 3
+
     fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    /** 설정 화면에서 사용자가 최대 단계를 골랐을 때. 이후 기본값이 바뀌어도 이 값을 유지한다. */
+    fun saveUserMaxLevel(context: Context, level: Int) {
+        migrate(context)
+        writeUserMaxLevel(prefs(context), level)
+    }
+
+    internal fun writeUserMaxLevel(p: SharedPreferences, level: Int) {
+        write(p, read(p).copy(maxLevel = level))
+        p.edit { putBoolean(KEY_MAX_LEVEL_USER_SET, true) }
+    }
+
+    internal fun isMaxLevelUserSet(p: SharedPreferences): Boolean = p.getBoolean(KEY_MAX_LEVEL_USER_SET, false)
+
+    /**
+     * 15단계: 기본 최대 단계가 3 에서 4 로 바뀌었다. 한 번만 적용한다.
+     *  - 저장된 최대 단계가 옛 기본값(3)이고 사용자가 고른 표시가 없으면 4 로 올린다.
+     *    15단계 전에는 고른 기록을 남기지 않아서, 3 을 직접 고른 사용자와 기본값을 쓰던 사용자를 구분할 수 없다. 기본값으로 본다.
+     *  - 3 보다 작으면(2) 옛 기본값과 다르므로 사용자가 고른 값이다. 유지하고 고른 표시를 남긴다.
+     *  - 저장된 정책이 없으면(새 설치) 할 일이 없다. 기본 정책이 이미 4 다.
+     * @return 이번 호출에서 최대 단계를 바꿨으면 true
+     */
+    internal fun migrateMaxLevelDefault(p: SharedPreferences): Boolean {
+        if (p.getBoolean(KEY_MAX_LEVEL_V4_MIGRATED, false)) return false
+        var changed = false
+        if (p.contains(KEY_POLICY)) {
+            val saved = read(p)
+            when {
+                isMaxLevelUserSet(p) -> Unit
+                saved.maxLevel == LEGACY_DEFAULT_MAX_LEVEL -> {
+                    write(p, saved.copy(maxLevel = InterventionPolicyBounds.MAX_LEVEL))
+                    changed = true
+                }
+                saved.maxLevel < LEGACY_DEFAULT_MAX_LEVEL -> p.edit { putBoolean(KEY_MAX_LEVEL_USER_SET, true) }
+            }
+        }
+        p.edit { putBoolean(KEY_MAX_LEVEL_V4_MIGRATED, true) }
+        return changed
+    }
 
     /** 저장된 정책. 시연 모드와 무관하다. */
     fun load(context: Context): InterventionPolicy {
@@ -120,6 +168,7 @@ object InterventionPolicyPreferences {
 
     private fun migrate(context: Context) {
         migrateLegacyThreshold(prefs(context), DetectionPreferences.prefs(context))
+        migrateMaxLevelDefault(prefs(context))
     }
 
     /**

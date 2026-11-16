@@ -91,7 +91,8 @@ class InterventionRepeatTest {
 
     @Test
     fun `one session climbs level 1, 2, 3 and then keeps repeating level 3 outside demo mode`() {
-        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, cooldownMs = 30_000))
+        // 15단계: 기본 최대 단계가 4 가 됐다. 최대 단계를 3 으로 고른 사용자의 기존 동작을 지킨다(Lv.4 는 아래 15단계 테스트)
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, cooldownMs = 30_000, maxLevel = 3))
         val shown = watch(engine(30_000, 30_000), 1_500) { InterventionOutcome.CONTINUED }
 
         // Lv.1 은 넘김 2번에 오른다(기본 정책). Lv.3 뒤에는 "5분만 더" 간격으로 반복한다.
@@ -101,7 +102,7 @@ class InterventionRepeatTest {
 
     @Test
     fun `demo mode climbs one step per answer and keeps repeating level 3 at its short interval`() {
-        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000))
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, maxLevel = 3))  // 최대 3 사용자(15단계 전 기본값)
         InterventionPolicyPreferences.writeDemoMode(prefs, true)
         val shown = watch(engine(DemoMode.COOLDOWN_MS, DemoMode.THRESHOLD_MS), 400) { InterventionOutcome.CONTINUED }
 
@@ -113,7 +114,7 @@ class InterventionRepeatTest {
 
     @Test
     fun `stopping at level 3 and watching on still repeats, at least 2 minutes apart`() {
-        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 3, deescalateAfterStops = 10))
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 3, deescalateAfterStops = 10, maxLevel = 3))
         val shown = watch(engine(30_000, 30_000), 1_100) { InterventionOutcome.STOPPED }
 
         assertEquals(List(shown.size) { 3 }, levels(shown))
@@ -123,7 +124,7 @@ class InterventionRepeatTest {
 
     @Test
     fun `no answer at the top level repeats at the top level, at least 2 minutes apart`() {
-        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 3))
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 3, maxLevel = 3))
         val shown = watch(engine(30_000, 30_000), 1_200, answerAfterMs = 5_000) { InterventionOutcome.IGNORED }
 
         assertEquals(List(shown.size) { 3 }, levels(shown))
@@ -161,7 +162,7 @@ class InterventionRepeatTest {
 
     @Test
     fun `the first arrival at the top level follows the cooldown, the repeat waits 2 minutes`() {
-        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 2))
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 2, maxLevel = 3))
         val shown = watch(engine(30_000, 30_000), 600, answerAfterMs = 5_000) { level ->
             if (level == 2) InterventionOutcome.CONTINUED else InterventionOutcome.IGNORED
         }
@@ -283,5 +284,40 @@ class InterventionRepeatTest {
         assertTrue(back.any { it.step.resumedSession != null })
         assertTrue(back.count { it.notifySession != null } >= 1)
         assertFalse(back.any { it.step.startedSession != null })
+    }
+
+    // --- 15단계: Lv.4 ---
+
+    @Test
+    fun `with the default max level one session climbs to level 4 and repeats it at least 2 minutes apart`() {
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, cooldownMs = 30_000))
+        val shown = watch(engine(30_000, 30_000), 2_400) { InterventionOutcome.CONTINUED }
+
+        assertEquals(listOf(1, 1, 2, 3, 4, 4, 4), levels(shown).take(7))
+        val atLv4 = shown.withIndex().filter { it.value.second == 4 }.map { wallShownAt[it.index] }
+        assertTrue(atLv4.size >= 3)
+        assertTrue("Lv.4 반복은 2분 이상", gaps(atLv4).all { it >= MaxLevelRepeatRule.MIN_GAP_MS })
+        // Lv.3 "5분만 더 보기" 뒤 Lv.4 는 시청시간 5분 뒤
+        val three = shown.indexOfFirst { it.second == 3 }
+        assertTrue(shown[three + 1].first - shown[three].first >= ReinterventionRule.FIVE_MORE_MINUTES_MS)
+    }
+
+    @Test
+    fun `demo mode climbs 1 to 4 at short intervals and keeps repeating level 4`() {
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000))
+        InterventionPolicyPreferences.writeDemoMode(prefs, true)
+        val shown = watch(engine(DemoMode.COOLDOWN_MS, DemoMode.THRESHOLD_MS), 400) { InterventionOutcome.CONTINUED }
+
+        assertEquals(listOf(1, 2, 3, 4, 4), levels(shown).take(5))
+        assertTrue("시연은 짧은 간격", gaps(wallShownAt).all { it <= DemoMode.MORE_TIME_MS + 2_000 })
+        assertTrue(shown.size > 8)
+    }
+
+    @Test
+    fun `leaving level 4 unanswered does not change the level`() {
+        InterventionPolicyPreferences.write(prefs, InterventionPolicy(thresholdMs = 30_000, level = 4))
+        val shown = watch(engine(30_000, 30_000), 900, answerAfterMs = 5_000) { InterventionOutcome.INTERRUPTED }
+        assertTrue(shown.size >= 2)
+        assertEquals(List(shown.size) { 4 }, levels(shown))
     }
 }

@@ -131,18 +131,20 @@ class InterventionHardeningTest {
     }
 
     @Test
-    fun `max level is clamped to 2 or 3, default 3, and caps the current level`() {
-        assertEquals(3, InterventionPolicy().maxLevel)
-        assertEquals(2, InterventionPolicy(maxLevel = 1).clamped().maxLevel)
-        assertEquals(3, InterventionPolicy(maxLevel = 9).clamped().maxLevel)
+    fun `max level is clamped to 1 to 4, default 4, and caps the current level`() {
+        // 15단계: 선택지 1~4, 기본 4(전에는 2~3, 기본 3)
+        assertEquals(4, InterventionPolicy().maxLevel)
+        assertEquals(1, InterventionPolicy(maxLevel = 0).clamped().maxLevel)
+        assertEquals(1, InterventionPolicy(maxLevel = 1).clamped().maxLevel)
+        assertEquals(4, InterventionPolicy(maxLevel = 9).clamped().maxLevel)
         assertEquals(2, InterventionPolicy(level = 3, maxLevel = 2).clamped().level)
     }
 
     @Test
-    fun `max level survives the codec and old records default to 3`() {
+    fun `max level survives the codec and old records default to the default max level`() {
         val p = InterventionPolicy(maxLevel = 2)
         assertEquals(p, InterventionPolicyCodec.decode(InterventionPolicyCodec.encode(p)))
-        assertEquals(3, InterventionPolicyCodec.decode("level=1")!!.maxLevel)
+        assertEquals(InterventionPolicyBounds.MAX_LEVEL, InterventionPolicyCodec.decode("level=1")!!.maxLevel)  // 15단계부터 4
     }
 
     @Test
@@ -358,7 +360,7 @@ class InterventionHardeningTest {
 
     @Test
     fun `migration 2 to 3 only adds columns and marks known demo changes`() {
-        assertEquals(9, UsageSchema.VERSION)
+        assertEquals(10, UsageSchema.VERSION)     // 15단계: dismiss_method 추가
         val sql = UsageSchema.MIGRATE_2_TO_3.joinToString("\n").uppercase()
         assertFalse("DROP" in sql || "DELETE" in sql || "RENAME" in sql)
         assertEquals(1, UsageSchema.MIGRATE_2_TO_3.count { it.startsWith("UPDATE") })

@@ -23,10 +23,12 @@ package com.example.shortsdetector.data.usage
  *
  * 버전 9: allowance_uses(하루 허용 시간 사용 기록) 테이블 추가. 기존 테이블은 바꾸지 않는다. 결과 값 ALLOWANCE 는
  * interventions.outcome 문자열이라 스키마 변경이 없다.
+ *
+ * 버전 10: interventions 에 dismiss_method(Lv.4 캐릭터를 치운 방법, 15단계) 추가. nullable 이고 기존 기록은 null 이다.
  */
 object UsageSchema {
 
-    const val VERSION = 9
+    const val VERSION = 10
 
     /** 복귀를 지켜보지 않는 기록의 표시. 버전 7 이전 기록에만 쓴다. */
     const val RETURN_UNKNOWN = "UNKNOWN"
@@ -161,5 +163,9 @@ object UsageSchema {
         )
         """.trimIndent(),
         "CREATE INDEX idx_allowance_uses_started ON allowance_uses(started_at_ms)"
+    )
+
+    val MIGRATE_9_TO_10: List<String> = listOf(
+        "ALTER TABLE interventions ADD COLUMN dismiss_method TEXT"
     )
 }

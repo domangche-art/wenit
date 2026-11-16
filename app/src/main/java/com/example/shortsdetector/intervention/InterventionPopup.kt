@@ -3,6 +3,7 @@ package com.example.shortsdetector.intervention
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -14,11 +15,15 @@ import android.view.WindowManager
 import android.widget.TextView
 import com.example.shortsdetector.R
 import com.example.shortsdetector.ShortsDetectionService
+import com.example.shortsdetector.data.usage.CharacterDismissal
 import com.example.shortsdetector.data.usage.InterventionOutcome
 import com.example.shortsdetector.data.usage.InterventionUserReason
 import com.example.shortsdetector.intervention.character.Box
 import com.example.shortsdetector.intervention.character.CharacterAnchor
 import com.example.shortsdetector.intervention.character.CharacterOverlay
+import com.example.shortsdetector.intervention.character.CharacterSpec
+import com.example.shortsdetector.intervention.character.Characters
+import com.example.shortsdetector.intervention.character.Lv4CharacterRules
 import com.example.shortsdetector.ui.WenitActivity
 
 /**
@@ -42,14 +47,19 @@ import com.example.shortsdetector.ui.WenitActivity
  */
 class InterventionPopup(
     private val service: AccessibilityService,
-    private val character: CharacterOverlay? = null
+    private val character: CharacterOverlay? = null,
+    /** Lv.4 에 띄울 캐릭터(사용자가 고른 캐릭터, 15단계). 띄울 때마다 읽는다. */
+    private val characterSpec: () -> CharacterSpec = { Characters.DEFAULT }
 ) {
 
     interface Listener {
         fun onReasonChosen(reason: InterventionUserReason)
 
-        /** 사용자가 버튼을 눌렀을 때 한 번 호출한다. */
-        fun onResponse(outcome: InterventionOutcome)
+        /**
+         * 사용자가 버튼을 눌렀을 때(또는 Lv.4 캐릭터를 치웠을 때) 한 번 호출한다.
+         * @param dismissal Lv.4 캐릭터를 치워서 계속 볼 때 치운 방법. 그 밖에는 null
+         */
+        fun onResponse(outcome: InterventionOutcome, dismissal: CharacterDismissal?)
 
         /** Lv.3 카운트다운 시작. 이 시간은 시청시간에서 뺀다. */
         fun onBreathingStarted()
@@ -74,6 +84,9 @@ class InterventionPopup(
 
         /** 창을 붙인 뒤 */
         fun attached(v: View, host: Host) = Unit
+
+        /** 개입 옆에 캐릭터(11단계)를 붙인다. 캐릭터가 화면의 주인공인 Lv.4 는 false */
+        val sideCharacter: Boolean get() = true
     }
 
     /** 화면이 쓰는 창 조작 */
@@ -81,7 +94,7 @@ class InterventionPopup(
         val listener: Listener
 
         /** 사용자의 반응으로 개입을 끝낸다. 버튼이 없는 화면도 이것으로 끝낸다. */
-        fun answer(outcome: InterventionOutcome)
+        fun answer(outcome: InterventionOutcome, dismissal: CharacterDismissal? = null)
 
         /** [OverlayWindow.FLOATING] 창을 옮긴다. 끌기에 쓴다. */
         fun moveWindowBy(dx: Int, dy: Int)
@@ -97,20 +110,37 @@ class InterventionPopup(
         override fun attached(v: View, host: Host) = startBreathing(v, host.listener)
     }
 
+    private val characterBlockScreen = object : Screen {
+        override val sideCharacter = false
+        override fun bind(v: View, host: Host) = bindCharacterBlock(v)
+        override fun attached(v: View, host: Host) {
+            // 막의 배치가 끝나야 캐릭터 자리의 화면 좌표를 안다
+            v.post { if (view === v) startCharacterBlock(v, host) }
+        }
+    }
+
     private fun screenFor(kind: InterventionKind): Screen = when (kind) {
         InterventionKind.NOTICE -> noticeScreen
         InterventionKind.QUESTION -> questionScreen
         InterventionKind.BREATHING -> breathingScreen
+        InterventionKind.CHARACTER_BLOCK -> characterBlockScreen
     }
 
     private val handler = Handler(Looper.getMainLooper())
     private var view: View? = null
     private var timeline: BreathingTimeline? = null
+    private var kind: InterventionKind? = null
+
+    /** 이번 Lv.4 에 띄운 캐릭터 */
+    private var blockSpec: CharacterSpec? = null
 
     /** 이번 개입에서 허용 시간 버튼을 보여 줄지(남은 시간). 0 이면 숨긴다. */
     private var allowanceLeftMs = 0L
 
     val isShowing: Boolean get() = view != null
+
+    /** Lv.4 처럼 화면 전체의 터치를 막고 시간 제한 없이 떠 있는 화면이다. 대상 앱을 떠나면 바로 닫아야 한다. */
+    val isBlockingCharacter: Boolean get() = view != null && kind == InterventionKind.CHARACTER_BLOCK
 
     /**
      * @param watchMs 이 개입 시점의 시청시간. 멈춘 뒤 홈 화면에 보여 준다.
@@ -132,12 +162,13 @@ class InterventionPopup(
             }
             val params = paramsFor(spec.window)
             val host = hostFor(v, params, watchMs, listener)
+            kind = spec.kind
             bindButtons(v, host)
             screen.bind(v, host)
             wm.addView(v, params)
             view = v
             screen.attached(v, host)
-            attachCharacter(v, spec.window)
+            if (screen.sideCharacter) attachCharacter(v, spec.window)
             OverlayFrameWatch.watch(v, "개입 팝업")
             true
         } catch (e: RuntimeException) {
@@ -154,11 +185,11 @@ class InterventionPopup(
             private var answered = false
             override val listener get() = owner
 
-            override fun answer(outcome: InterventionOutcome) {
+            override fun answer(outcome: InterventionOutcome, dismissal: CharacterDismissal?) {
                 if (answered) return
                 answered = true
                 try {
-                    owner.onResponse(outcome)
+                    owner.onResponse(outcome, dismissal)
                 } catch (e: RuntimeException) {
                     Log.w(ShortsDetectionService.TAG, "개입 반응 기록 실패: ${e.javaClass.simpleName}")
                 }
@@ -234,6 +265,69 @@ class InterventionPopup(
             listener.onBreathingStarted()
             it.start()
         }
+    }
+
+    // --- Lv.4 캐릭터 방해(15단계) ---
+
+    /**
+     * 창을 붙이기 전: 캐릭터 자리 크기(화면 너비의 절반, 그림 비율), 남은 탭 수, 첫 말풍선.
+     * 막 창도 강제 다크를 끈다(말풍선·글자가 밝은 고정색이고, 서비스 Context 의 테마는 앱 테마가 아니다. 11단계 참고).
+     */
+    private fun bindCharacterBlock(v: View) {
+        val spec = try {
+            characterSpec()
+        } catch (e: RuntimeException) {
+            Characters.DEFAULT
+        }
+        blockSpec = spec
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) v.isForceDarkAllowed = false
+        val metrics = service.resources.displayMetrics
+        val art = service.getDrawable(spec.lv4ArtOrBase)
+        val size = art?.let { Lv4CharacterRules.size(metrics.widthPixels, metrics.heightPixels, it.intrinsicWidth, it.intrinsicHeight) }
+        val slot = v.findViewById<View>(R.id.lv4CharacterSlot)
+        if (size != null) {
+            slot.layoutParams = slot.layoutParams.apply {
+                width = size.first
+                height = size.second
+            }
+        }
+        v.findViewById<TextView>(R.id.lv4TapsLeft).text =
+            service.getString(R.string.popup_lv4_taps_left, Lv4CharacterRules.tapsNeeded(spec.lv4))
+        showLine(v, spec, 0)
+    }
+
+    /** 막의 배치가 끝난 뒤 캐릭터 자리에 Lv.4 캐릭터를 띄운다. 띄우지 못하면 캐릭터 없이 끝낼 수 있게 "계속 보기" 버튼을 보인다. */
+    private fun startCharacterBlock(v: View, host: Host) {
+        val spec = blockSpec ?: Characters.DEFAULT
+        val slot = boxOnScreen(v.findViewById(R.id.lv4CharacterSlot))
+        val c = character
+        val shown = c != null && slot.width > 1 && slot.height > 1 && c.showBlocking(slot, spec, object : CharacterOverlay.BlockingListener {
+            override fun onTap(taps: Int, tapsLeft: Int) {
+                if (view !== v) return
+                if (tapsLeft > 0) {
+                    v.findViewById<TextView>(R.id.lv4TapsLeft).text = service.getString(R.string.popup_lv4_taps_left, tapsLeft)
+                }
+                showLine(v, spec, taps)
+            }
+
+            override fun onCleared(how: CharacterDismissal) {
+                if (view === v) host.answer(InterventionOutcome.CONTINUED, how)
+            }
+        })
+        if (!shown) {
+            Log.w(ShortsDetectionService.TAG, "Lv.4 캐릭터 없이 막만 표시: 계속 보기 버튼으로 대신함")
+            v.findViewById<View>(R.id.lv4TapsLeft).visibility = View.GONE
+            v.findViewById<View>(R.id.lv4Bubble).visibility = View.GONE
+            v.findViewById<View>(R.id.popupContinue).visibility = View.VISIBLE
+        }
+    }
+
+    /** 말풍선: 대사가 있으면 [index] 번째(돌려 씀)를 보이고, 없으면 숨긴다. */
+    private fun showLine(v: View, spec: CharacterSpec, index: Int) {
+        val bubble = v.findViewById<TextView>(R.id.lv4Bubble)
+        val line = Lv4CharacterRules.lineAt(spec.lines, index)
+        bubble.text = line.orEmpty()
+        bubble.visibility = if (line == null) View.GONE else View.VISIBLE
     }
 
     /** 개입 창의 배치가 끝난 뒤 캐릭터를 띄우고, 배치가 바뀌면(Lv.3 버튼 등장) 자리를 옮긴다. */
@@ -316,6 +410,8 @@ class InterventionPopup(
         timeline?.cancel()
         timeline = null
         handler.removeCallbacksAndMessages(null)
+        kind = null
+        blockSpec = null
         val v = view ?: return
         view = null
         try {

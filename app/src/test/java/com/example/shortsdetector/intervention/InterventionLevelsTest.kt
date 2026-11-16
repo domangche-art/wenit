@@ -18,18 +18,24 @@ class InterventionLevelsTest {
 
     @Test
     fun `existing levels stay what they were`() {
-        val (one, two, three) = InterventionLevels.ALL
+        // 15단계: Lv.3 은 화면·창·"5분만 더"가 그대로이고, 계속 보기를 고르면 Lv.4 로 오르도록 상승 규칙만 바뀌었다
+        val (one, two, three) = InterventionLevels.ALL.take(3)
         assertEquals(InterventionKind.NOTICE to OverlayWindow.CARD, one.kind to one.window)
         assertEquals(InterventionKind.QUESTION to OverlayWindow.CARD, two.kind to two.window)
         assertEquals(InterventionKind.BREATHING to OverlayWindow.FULL_SCREEN, three.kind to three.window)
         assertTrue(three.promisesMoreTime)
-        assertEquals(EscalationRule.NONE, three.escalation)
+        assertEquals(EscalationRule.AFTER_SKIPS, one.escalation)
+        assertEquals(EscalationRule.ON_CONTINUE, two.escalation)
+        assertEquals(EscalationRule.ON_CONTINUE, three.escalation)
+        assertTrue(one.pausesOnShow && two.pausesOnShow && !three.pausesOnShow)
     }
 
     @Test
     fun `max level choices match the bounds`() {
         assertEquals(InterventionPolicyBounds.MAX_LEVEL_SETTING.toList(), InterventionLevels.maxLevelChoices.map { it.number })
-        assertNull(InterventionLevels.ALL.first().maxLevelLabel)
+        // 15단계: 1~4 모두 고를 수 있다
+        assertEquals(listOf(1, 2, 3, 4), InterventionLevels.maxLevelChoices.map { it.number })
+        assertTrue(InterventionLevels.ALL.all { it.maxLevelLabel != null })
     }
 
     @Test

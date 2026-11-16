@@ -214,7 +214,7 @@ class PolicyAgent(
             값의 범위:
             - thresholdSec: 30~600, 현재 값의 ±50% 이내
             - cooldownSec: 30~600
-            - startLevel: 1~maxLevel, 현재 단계의 ±1 이내
+            - startLevel: 1~3(maxLevel 이 더 작으면 maxLevel), 현재 단계의 ±1 이내. Lv.4 는 시작 단계로 정할 수 없고 규칙으로만 오릅니다
             - decision 이 KEEP 이어도 모든 필드를 현재 값 기준으로 채웁니다.
             - policy.perSessionGoalMinutes 는 사용자가 정한 한 번 시청 목표입니다. 실제 기준은 thresholdSec 와 이 값 중 작은 쪽입니다.
 
