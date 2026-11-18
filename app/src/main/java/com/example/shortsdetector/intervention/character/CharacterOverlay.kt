@@ -487,6 +487,13 @@ class CharacterOverlay(
         }
     }
 
+    /** 디버그 빌드 실기기 시험용(17단계): 떠 있는 Lv.4 캐릭터를 한 번 탭한다(손가락 탭과 같은 리스너) */
+    fun debugTap(): Boolean {
+        val v = view ?: return false
+        if (blocking == null) return false
+        return v.performClick()
+    }
+
     /** 바로 지운다. 개입이 닫힐 때 부른다. */
     fun dismiss() {
         blocking?.stop()

@@ -139,6 +139,15 @@ object AgentInputJson {
             "lv2Reasons",
             JSONObject().apply { r.lv2Reasons.forEach { put(it.reason.name, it.count) } }
         )
+        .put(
+            // 17단계: 앱별 집계. 패키지 이름이 아니라 "shorts"/"reels" 로만 나눈다
+            "byApp",
+            JSONObject().apply {
+                r.apps.forEach { a ->
+                    put(a.source.agentKey, sampled(a.samples).putRate("watchShare", a.watchShare).putRate("stopRate", a.stopRate))
+                }
+            }
+        )
 
     /** 집계값만 보낸다. 표본이 적은 항목은 값 대신 상태만 남겨 AI 가 과하게 해석하지 않게 한다. */
     private fun behavior(b: InterventionBehavior) = JSONObject()

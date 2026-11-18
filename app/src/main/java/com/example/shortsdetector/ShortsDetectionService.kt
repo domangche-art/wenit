@@ -2,7 +2,12 @@ package com.example.shortsdetector
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.Manifest
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.graphics.Point
 import android.os.Build
@@ -68,6 +73,8 @@ import com.example.shortsdetector.intervention.allowance.ResumeHintOverlay
 import com.example.shortsdetector.intervention.allowance.ResumeHintRule
 import com.example.shortsdetector.platform.AppForeground
 import com.example.shortsdetector.platform.DetectionStatus
+import com.example.shortsdetector.platform.StructureDump
+import androidx.core.content.ContextCompat
 import com.example.shortsdetector.platform.ScrollEventMapper
 import java.time.LocalDate
 import java.time.ZoneId
@@ -220,6 +227,7 @@ class ShortsDetectionService : AccessibilityService() {
         DetectionStatus.onConnected()
         NotificationTaps.listener = ::onNotificationTapped
         Lv4Preview.handler = ::previewLv4
+        registerStructureDump()
         BadgeNotifier.ensureChannel(this)
         AllowanceNotifier.ensureChannel(this)
         updateRewards("연결")
@@ -384,6 +392,7 @@ class ShortsDetectionService : AccessibilityService() {
         closeIntervention()
         releasePlaybackControl()
         unregisterPreferenceListeners()
+        unregisterStructureDump()
         DetectionStatus.onDisconnected()
         stopUsageRecording()
         return super.onUnbind(intent)
@@ -399,6 +408,7 @@ class ShortsDetectionService : AccessibilityService() {
         releasePlaybackControl()
         stopUsageRecording()
         unregisterPreferenceListeners()
+        unregisterStructureDump()
         DetectionStatus.onDisconnected()
         super.onDestroy()
     }
@@ -690,6 +700,112 @@ class ShortsDetectionService : AccessibilityService() {
         }
     }
 
+
+    // --- 개발용 화면 구조 덤프(17단계, 디버그 빌드만) ---
+
+    /** adb shell am broadcast -a com.example.shortsdetector.debug.DUMP_STRUCTURE [--es label 이름] [--ez all true] */
+    private val structureDumpReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val press = intent.getStringExtra(StructureDump.EXTRA_PRESS)
+            if (press != null) {
+                debugPress(press)
+                return
+            }
+            dumpStructure(
+                intent.getBooleanExtra(StructureDump.EXTRA_ALL, false),
+                StructureDump.label(intent.getStringExtra(StructureDump.EXTRA_LABEL))
+            )
+        }
+    }
+
+    /** 실기기 시험용: WENIT 개입 화면의 버튼("stop"/"continue"/"allowance"), Lv.4 캐릭터("character"), 상태 보기("status") */
+    private fun debugPress(what: String) {
+        val ok = try {
+            when (what) {
+                "status" -> true
+                "character" -> popup.debugTapCharacter()
+                else -> popup.debugPress(what)
+            }
+        } catch (e: RuntimeException) {
+            Log.w(STRUCTURE_TAG, "시험 누르기 실패: ${e.javaClass.simpleName}")
+            false
+        }
+        Log.i(
+            STRUCTURE_TAG,
+            "# press=${StructureDump.label(what)} ok=$ok popup=${popup.isShowing} lv4=${popup.isBlockingCharacter} " +
+                "buttons=${popup.debugVisibleButtons()} watchMs=${engine.sessionProgress()?.estimatedWatchMs} " +
+                "held=${appHold.watchHeld(pauser.pausedByApp, userPause.paused)} userPaused=${userPause.paused} " +
+                "appPaused=${pauser.pausedByApp} card=${appHold.cardOpen} breathing=${appHold.breathing} audio=${playbackControls.isPlaying()}"
+        )
+    }
+    private var structureDumpRegistered = false
+
+    private fun registerStructureDump() {
+        if (!BuildConfig.DEBUG || structureDumpRegistered) return
+        try {
+            // 권한 DUMP: adb shell 은 갖고 있고 일반 앱은 받을 수 없다
+            ContextCompat.registerReceiver(
+                this, structureDumpReceiver, IntentFilter(StructureDump.ACTION),
+                Manifest.permission.DUMP, handler, ContextCompat.RECEIVER_EXPORTED
+            )
+            structureDumpRegistered = true
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "구조 덤프 등록 실패: ${e.javaClass.simpleName}")
+        }
+    }
+
+    private fun unregisterStructureDump() {
+        if (!structureDumpRegistered) return
+        structureDumpRegistered = false
+        try {
+            unregisterReceiver(structureDumpReceiver)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "구조 덤프 해제 실패: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /** 지금 활성 창의 구조(view id, 클래스, 위치·크기)만 로그로 남긴다. 화면 글자는 담지 않는다([StructureDump]). */
+    private fun dumpStructure(includeAll: Boolean, label: String) {
+        val info = serviceInfo
+        val oldFlags = info?.flags ?: 0
+        try {
+            if (includeAll && info != null) {
+                info.flags = oldFlags or AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+                serviceInfo = info
+            }
+            if (screenWidth <= 0 || screenHeight <= 0) cacheScreenSize()
+            val root = getRootInActiveWindow()
+            if (root == null) {
+                Log.i(STRUCTURE_TAG, "# label=$label root 없음")
+                return
+            }
+            try {
+                val pkg = root.packageName?.toString() ?: "-"
+                val snapshot = snapshotter.capture(
+                    root, pkg, screenWidth, screenHeight, engine.adapterFor(pkg)?.lookupViewIds.orEmpty(), fullTree = true
+                )
+                Log.i(STRUCTURE_TAG, StructureDump.header(snapshot, label, includeAll))
+                StructureDump.lines(snapshot).forEach { Log.i(STRUCTURE_TAG, it) }
+                Log.i(STRUCTURE_TAG, "# end label=$label")
+            } finally {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    @Suppress("DEPRECATION")
+                    root.recycle()
+                }
+            }
+        } catch (e: RuntimeException) {
+            Log.w(STRUCTURE_TAG, "구조 덤프 실패: ${e.javaClass.simpleName}")
+        } finally {
+            if (includeAll && info != null) {
+                info.flags = oldFlags
+                try {
+                    serviceInfo = info
+                } catch (e: RuntimeException) {
+                    Log.w(TAG, "serviceInfo 복구 실패: ${e.javaClass.simpleName}")
+                }
+            }
+        }
+    }
     /** 화면이 켜져 있고 잠금이 풀렸는지. 확인할 수 없으면 false 로 두어 이탈 판정을 그대로 탄다. */
     private fun isUserPresent(): Boolean {
         val interactive = getSystemService(PowerManager::class.java)?.isInteractive == true
@@ -1015,6 +1131,9 @@ class ShortsDetectionService : AccessibilityService() {
 
     companion object {
         const val TAG = "ShortsDetector"
+
+        /** 개발용 구조 덤프 로그 태그(디버그 빌드만) */
+        const val STRUCTURE_TAG = "WenitStructure"
 
         private const val MIN_REWARD_DELAY_MS = 60_000L
 

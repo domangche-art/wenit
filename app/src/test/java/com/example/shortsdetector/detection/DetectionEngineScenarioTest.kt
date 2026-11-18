@@ -310,16 +310,19 @@ class DetectionEngineScenarioTest {
         assertEquals(1, notified)
     }
 
+    // --- Instagram Reels(17단계, 실기기 구조 fixture) ---
+
+    private fun DetectionEngine.enterReels(from: Long): EngineOutput {
+        frame(from, Fixtures.instagramReels())
+        frame(from + 250, Fixtures.instagramReels())
+        return frame(from + 500, Fixtures.instagramReels())
+    }
+
     @Test
-    fun `instagram reels with page flips is detected, feed and DMs are not`() {
+    fun `instagram reels tab is detected without swiping, feed scrolling and DMs never are`() {
         val reels = engine()
-        var notified: Int? = null
-        for (i in 0 until 8) {
-            val t = i * 1_000L
-            reels.onScroll(scroll(t, IG, from = i))
-            notified = notified ?: reels.frame(t, Fixtures.instagramReels()).notifySession
-        }
-        assertEquals(1, notified)
+        assertEquals(1, reels.enterReels(0).notifySession)
+        assertEquals(IG, reels.sessionPackage)
 
         val feed = engine()
         for (i in 0 until 30) {
@@ -328,8 +331,97 @@ class DetectionEngineScenarioTest {
             assertNull(feed.frame(t, Fixtures.instagramFeed()).notifySession)
             assertNull(feed.frame(t + 250, Fixtures.instagramDirect()).notifySession)
         }
+        assertNull(feed.sessionPackage)
     }
 
+    @Test
+    fun `leaving reels for the home feed ends the session instead of counting the feed`() {
+        val e = engine()
+        e.enterReels(0)
+        var ended: EngineOutput? = null
+        for (t in 1_500L..8_000L step 1_000L) {
+            e.onScroll(scroll(t, IG, from = (t / 1_000).toInt(), to = (t / 1_000).toInt() + 2))
+            val out = e.frame(t, Fixtures.instagramFeed())
+            if (out.endedSession != null) ended = out
+        }
+        assertNotNull("예전 규칙(ig-0)은 피드에서도 세션을 이어 갔다", ended)
+        assertNull(e.sessionPackage)
+    }
+
+    @Test
+    fun `swiping to the next reel keeps one session`() {
+        val e = engine()
+        e.enterReels(0)
+        for (i in 1..10) {
+            val t = i * 1_000L
+            e.onScroll(scroll(t, IG, from = i))
+            val out = e.frame(t, if (i % 3 == 0) Fixtures.instagramReels().copy(
+                nodes = Fixtures.instagramReels().nodes.filterNot { it.viewId == InstagramReelsAdapter.VIDEO_CONTAINER }
+            ) else Fixtures.instagramReels())
+            assertNull(out.endedSession)
+            assertNull(out.step.startedSession)
+        }
+        assertEquals(1, e.sessionProgress()!!.sessionNumber)
+    }
+
+    @Test
+    fun `reels comment sheet counts as watching, share sheet is a brief cover`() {
+        val e = engine()
+        e.enterReels(0)
+        val before = e.sessionProgress()!!.estimatedWatchMs
+        for (t in 1_500L..6_500L step 1_000L) assertNull(e.frame(t, Fixtures.instagramReelsComments()).endedSession)
+        val afterComments = e.sessionProgress()!!
+        assertTrue("댓글창 시간은 시청", afterComments.estimatedWatchMs >= before + 4_000L)
+        assertTrue(afterComments.partialWatchMs > 0)
+        for (t in 7_500L..12_500L step 1_000L) assertNull(e.frame(t, Fixtures.instagramReelsShare()).endedSession)
+        val afterShare = e.sessionProgress()!!
+        assertTrue("공유 시트 시간은 가림", afterShare.obscuredMs >= 4_000L)
+        assertTrue(afterShare.estimatedWatchMs <= afterComments.estimatedWatchMs + 1_000L)
+        assertEquals(DetectionState.SHORTFORM_ESTIMATED, e.frame(13_500L, Fixtures.instagramReels()).step.current)
+    }
+
+    @Test
+    fun `comment or share sheets alone never start a session`() {
+        val e = engine()
+        for (t in 0L..10_000L step 500L) {
+            val s = if (t % 1_000L == 0L) Fixtures.instagramReelsComments() else Fixtures.instagramReelsShare()
+            assertNull(e.frame(t, s).step.startedSession)
+        }
+        assertNull(e.sessionPackage)
+    }
+
+    @Test
+    fun `switching between shorts and reels starts a new session, intervention cooldown stays shared`() {
+        val e = engine(thresholdMs = 0L)
+        assertEquals(1, e.enterShorts(0).notifySession)
+        // 바로 릴스로: 앱이 바뀌면 새 세션(APP_SWITCHED). 개입 쿨다운(30초)은 앱과 상관없이 이어진다
+        var switched: EngineOutput? = null
+        var notifiedReels: Int? = null
+        for (t in 1_000L..20_000L step 1_000L) {
+            val out = e.frame(t, Fixtures.instagramReels())
+            if (out.endedSession != null) switched = out
+            notifiedReels = notifiedReels ?: out.notifySession
+        }
+        assertEquals(com.example.shortsdetector.detection.model.EndReason.APP_SWITCHED, switched!!.endedSession!!.endReason)
+        assertEquals(IG, e.sessionPackage)
+        assertNull("쿨다운 30초 안에는 앱이 바뀌어도 다시 개입하지 않음", notifiedReels)
+        var later: Int? = null
+        for (t in 21_000L..40_000L step 1_000L) later = later ?: e.frame(t, Fixtures.instagramReels()).notifySession
+        assertEquals(2, later)
+    }
+
+    @Test
+    fun `returning to reels within 10 seconds resumes the same session, after that a new one`() {
+        val e = engine()
+        e.enterReels(0)
+        for (t in 1_000L..4_000L step 1_000L) e.frame(t, Fixtures.instagramFeed())     // 이탈 확정(2초 유예)
+        assertNull(e.sessionPackage)
+        val back = e.enterReels(8_000L)
+        assertEquals(1, back.step.resumedSession)
+        for (t in 9_000L..12_000L step 1_000L) e.frame(t, Fixtures.instagramFeed())
+        val fresh = e.enterReels(30_000L)
+        assertEquals(2, fresh.step.startedSession)
+    }
     @Test
     fun `instagram disabled - its screens are treated as foreign and never detected`() {
         val e = engine(packages = setOf(YT))

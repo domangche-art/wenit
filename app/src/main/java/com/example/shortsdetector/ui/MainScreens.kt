@@ -41,6 +41,8 @@ import com.example.shortsdetector.data.rewards.BadgeTier
 import com.example.shortsdetector.data.rewards.EarnedBadge
 import com.example.shortsdetector.data.stats.DailyWatch
 import com.example.shortsdetector.data.stats.WeekStats
+import com.example.shortsdetector.data.stats.AppWatch
+import com.example.shortsdetector.data.usage.ShortformSource
 import com.example.shortsdetector.data.usage.DemoSeedData
 import com.example.shortsdetector.intervention.DemoMode
 import com.example.shortsdetector.intervention.InterventionLevels
@@ -198,6 +200,7 @@ private fun WeekCard(week: WeekStats, allowanceDays: List<Long>) {
         WeekBars(week.days, allowanceDays)
         if (allowanceDays.any { it > 0L }) Caption(stringResource(R.string.records_allowance_legend))
         Caption(stringResource(R.string.records_average, durationText(week.dailyAverageMs)))
+        AppTotals(week.appTotals)
         val ratio = week.changeRatio
         Caption(
             when {
@@ -207,6 +210,19 @@ private fun WeekCard(week: WeekStats, allowanceDays: List<Long>) {
             }
         )
     }
+}
+
+/** 이번 주 앱별 합계(17단계). 두 앱 모두 0 이면 숨긴다. 막대는 두 앱을 합친 값이다. */
+@Composable
+private fun AppTotals(totals: List<AppWatch>) {
+    if (totals.none { it.watchMs > 0L }) return
+    fun of(s: ShortformSource) = totals.firstOrNull { it.source == s }?.watchMs ?: 0L
+    Caption(
+        stringResource(
+            R.string.records_app_totals,
+            durationText(of(ShortformSource.SHORTS)), durationText(of(ShortformSource.REELS))
+        )
+    )
 }
 
 /** 월~일 일곱 칸. 아직 오지 않은 요일은 비워 둔다. 허용 시간으로 본 몫은 막대 아래쪽을 다른 색(tertiary)으로 구분한다(14단계). */
@@ -343,6 +359,7 @@ fun SettingsScreen(
         SectionTitle(stringResource(R.string.settings_targets))
         SwitchRow(stringResource(R.string.app_label_youtube), s.youtube, onChange = vm::setYouTube)
         SwitchRow(stringResource(R.string.settings_instagram), s.instagram, onChange = vm::setInstagram)
+        Caption(stringResource(R.string.settings_instagram_note))
 
         SectionTitle(stringResource(R.string.settings_permissions))
         PermissionCards(s.permissions, onChanged = vm::refresh)

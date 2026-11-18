@@ -10,7 +10,8 @@ import com.example.shortsdetector.detection.model.UiNode
  * 테스트 fixture.
  *
  * - YouTube: 저장소의 실제 uiautomator 덤프에서 text/content-desc 를 제거한 구조 TSV (실측)
- * - 그 밖의 화면(댓글창, Clear Screen, 홈, Instagram 등): 개인정보 없는 **가상 데이터**.
+ * - Instagram: 실기기 구조 덤프(17단계, [loadDump] 형식). 화면 글자 없음
+ * - 그 밖의 YouTube 화면(댓글창, Clear Screen, 홈 등): 개인정보 없는 **가상 데이터**.
  *   실측값이 아니므로 테스트 이름/주석에 "synthetic" 으로 표시한다.
  */
 object Fixtures {
@@ -150,29 +151,82 @@ object Fixtures {
         )
     )
 
-    /** synthetic: Instagram Reels 전체화면 pager */
-    fun instagramReels(): ScreenSnapshot = snapshot(
-        IG,
-        node(null, "androidx.recyclerview.widget.RecyclerView", top = 0, bottom = 2250),
-        node(null, "android.widget.ImageView", top = 1800, bottom = 1900, right = 200),
-        node(null, "android.widget.LinearLayout", top = 2250, bottom = 2424)
-    )
+    // --- Instagram: 실기기 구조 덤프(17단계, Instagram 456.0.0.0.42, SM-S906N, 2026-11-18, 화면 1080x2340) ---
 
-    /** synthetic: Instagram 홈 피드(전체 높이에 가까운 세로 리스트 — pager 와 구조가 비슷하다) */
-    fun instagramFeed(): ScreenSnapshot = snapshot(
-        IG,
-        node(null, "android.view.ViewGroup", top = 0, bottom = 150),
-        node(null, "androidx.recyclerview.widget.RecyclerView", top = 150, bottom = 2250),
-        node(null, "android.widget.LinearLayout", top = 2250, bottom = 2424)
-    )
+    /** 실측: 릴스 탭 전체화면 */
+    fun instagramReels(): ScreenSnapshot = ig("reels_tab")
 
-    /** synthetic: Instagram DM 목록 (작은 리스트) */
-    fun instagramDirect(): ScreenSnapshot = snapshot(
-        IG,
-        node(null, "android.view.ViewGroup", top = 0, bottom = 300),
-        node(null, "androidx.recyclerview.widget.RecyclerView", top = 300, bottom = 1100),
-        node(null, "android.widget.EditText", top = 2200, bottom = 2300)
-    )
+    /** 실측: 탐색 탭에서 연 릴스(전체화면 뷰어, 아래 댓글 입력 줄) */
+    fun instagramExploreReel(): ScreenSnapshot = ig("explore_reel")
+
+    /** 실측: 릴스에서 댓글창을 연 상태(시트가 root 를 덮고, ID 검색으로 찾은 영상은 위쪽으로 줄어 0.272) */
+    fun instagramReelsComments(): ScreenSnapshot = ig("reels_comments")
+
+    /** 실측: 같은 댓글창을 ID 검색 없이 순회만 한 것(시트 내용 윗변 y=1034, 위쪽 약 41%) */
+    fun instagramReelsCommentsNoLookup(): ScreenSnapshot = ig("reels_comments_no_lookup")
+
+    /** 실측: 릴스에서 공유 시트를 연 상태(ID 검색은 시트 아래 뷰어를 원래 크기 0.898 로 찾는다) */
+    fun instagramReelsShare(): ScreenSnapshot = ig("reels_share")
+
+    /** 실측: 릴스 탭의 사진형 릴스(영상 영역 0.615) */
+    fun instagramReelsPhoto(): ScreenSnapshot = ig("reels_photo")
+
+    /** 실측: 릴스 탭의 이미지 광고(영상 영역 없음) */
+    fun instagramReelsImageAd(): ScreenSnapshot = ig("reels_image_ad")
+
+    /** 실측: 홈 피드 맨 위(스토리 줄 + 자동 재생 영상 게시물, 화면 대부분을 덮는 ViewPager·RecyclerView 있음) */
+    fun instagramFeed(): ScreenSnapshot = ig("home")
+
+    /** 실측: 홈 피드 스크롤 중 — 영상 게시물 / 캐러셀 / 사진 게시물 */
+    fun instagramFeedScrolled(): List<ScreenSnapshot> = listOf(ig("feed2"), ig("feed3"), ig("feed4"))
+
+    /** 실측: 스토리 보기 */
+    fun instagramStory(): ScreenSnapshot = ig("story")
+
+    /** 실측: 프로필의 릴스 목록(clips_grid_recyclerview) */
+    fun instagramProfileReels(): ScreenSnapshot = ig("profile_reels")
+
+    /** 실측: 탐색 그리드(숨은 릴스 뷰어 pager 가 트리에 남아 있음) */
+    fun instagramExplore(): ScreenSnapshot = ig("explore")
+
+    /** 실측: DM 목록 */
+    fun instagramDirect(): ScreenSnapshot = ig("inbox")
+
+    /** 실측: DM 대화방(릴스 없음) */
+    fun instagramDirectThread(): ScreenSnapshot = ig("dm_thread")
+
+    private fun ig(name: String) = loadDump("fixtures/instagram/${name}_2026-11-18.tsv", IG)
+
+    /**
+     * [com.example.shortsdetector.platform.StructureDump] 형식(순번, viewId, 클래스, l,t,r,b, v/h, s/-, 면적비)을 읽는다.
+     * 화면 크기는 "# label=... screen=WxH" 줄에서 읽는다. 숨은 노드(h)는 그대로 숨김이다.
+     */
+    fun loadDump(path: String, pkg: String): ScreenSnapshot {
+        val stream = Fixtures::class.java.classLoader!!.getResourceAsStream(path) ?: error("fixture not found: $path")
+        var w = W
+        var h = H
+        val nodes = ArrayList<UiNode>()
+        stream.bufferedReader(Charsets.UTF_8).useLines { lines ->
+            for (line in lines) {
+                if (line.isBlank()) continue
+                if (line.startsWith("#")) {
+                    Regex("""screen=(\d+)x(\d+)""").find(line)?.let { m ->
+                        w = m.groupValues[1].toInt()
+                        h = m.groupValues[2].toInt()
+                    }
+                    continue
+                }
+                val c = line.split('\t')
+                val b = c[3].split(',').map(String::toInt)
+                nodes += UiNode(
+                    viewId = c[1].takeIf { it != "-" }, className = c[2].takeIf { it != "-" },
+                    left = b[0], top = b[1], right = b[2], bottom = b[3],
+                    visibleToUser = c[4] == "v", scrollable = c[5] == "s"
+                )
+            }
+        }
+        return ScreenSnapshot(pkg, w, h, nodes)
+    }
 
     fun scroll(
         atMs: Long, pkg: String, from: Int, to: Int = from, dx: Int? = 0, dy: Int? = H, screenHeight: Int = 0

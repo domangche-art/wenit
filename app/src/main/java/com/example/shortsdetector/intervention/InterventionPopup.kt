@@ -505,6 +505,33 @@ class InterventionPopup(
 
     private fun floatingParams() = OverlayWindows.floatingParams()
 
+    // --- 디버그 빌드 실기기 시험용(17단계). 서비스가 BuildConfig.DEBUG 일 때만 부른다 ---
+
+    private val debugButtons = mapOf(
+        "stop" to R.id.popupStop, "continue" to R.id.popupContinue, "allowance" to R.id.popupAllowance,
+        "reason" to R.id.reasonBored
+    )
+
+    /** 지금 눌 수 있는 버튼 이름(보이고 켜진 것) */
+    fun debugVisibleButtons(): List<String> {
+        val v = view ?: return emptyList()
+        return debugButtons.filter { (_, id) ->
+            v.findViewById<View>(id)?.let { it.isShown && it.isEnabled } == true
+        }.keys.toList()
+    }
+
+    /** 떠 있는 개입 화면의 버튼을 누른다(사용자가 탭할 때와 같은 리스너). 누를 수 없으면 false */
+    fun debugPress(button: String): Boolean {
+        val v = view ?: return false
+        val id = debugButtons[button] ?: return false
+        val b = v.findViewById<View>(id) ?: return false
+        if (!b.isShown || !b.isEnabled) return false   // 숨은 부모(숨 고르기 중 버튼 줄) 안의 버튼은 사용자가 누를 수 없다
+        return b.performClick()
+    }
+
+    /** Lv.4 캐릭터를 한 번 탭한다 */
+    fun debugTapCharacter(): Boolean = isBlockingCharacter && character?.debugTap() == true
+
     fun dismiss() {
         character?.dismiss()
         timeline?.cancel()

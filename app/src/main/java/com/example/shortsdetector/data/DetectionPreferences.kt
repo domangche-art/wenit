@@ -11,7 +11,9 @@ import com.example.shortsdetector.intervention.character.Characters
 /**
  * 사용자 감지 설정: 대상 앱 on/off, 화면 중앙 팝업 사용 여부. 개입 임계값은 개입 정책으로 옮겼다.
  *
- * YouTube 는 기존 동작과 같게 기본 켜짐, Instagram 은 규칙이 실기기 미검증이라 기본 꺼짐.
+ * YouTube 는 기존 동작과 같게 기본 켜짐. Instagram 은 기본 꺼짐: 17단계 실기기에서 감지(규칙 ig-1)는 통과했지만 영상 소리를
+ * 멈추지 못했고(MediaSession 없음, 오디오 포커스를 잃어도 재생 유지), DM 으로 받은 릴스 화면은 확인하지 못했다.
+ * 사용자가 켠 값은 그대로 둔다.
  */
 object DetectionPreferences {
 
@@ -27,17 +29,24 @@ object DetectionPreferences {
     fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
-    fun isYouTubeEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_YOUTUBE_ENABLED, true)
+    fun isYouTubeEnabled(context: Context): Boolean = isYouTubeEnabled(prefs(context))
 
-    fun isInstagramEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_INSTAGRAM_ENABLED, false)
+    fun isInstagramEnabled(context: Context): Boolean = isInstagramEnabled(prefs(context))
 
-    fun setYouTubeEnabled(context: Context, enabled: Boolean) =
-        prefs(context).edit { putBoolean(KEY_YOUTUBE_ENABLED, enabled) }
+    fun setYouTubeEnabled(context: Context, enabled: Boolean) = setYouTubeEnabled(prefs(context), enabled)
 
-    fun setInstagramEnabled(context: Context, enabled: Boolean) =
-        prefs(context).edit { putBoolean(KEY_INSTAGRAM_ENABLED, enabled) }
+    fun setInstagramEnabled(context: Context, enabled: Boolean) = setInstagramEnabled(prefs(context), enabled)
+
+    internal fun isYouTubeEnabled(p: SharedPreferences): Boolean = p.getBoolean(KEY_YOUTUBE_ENABLED, true)
+
+    internal fun isInstagramEnabled(p: SharedPreferences): Boolean = p.getBoolean(KEY_INSTAGRAM_ENABLED, INSTAGRAM_DEFAULT)
+
+    internal fun setYouTubeEnabled(p: SharedPreferences, enabled: Boolean) = p.edit { putBoolean(KEY_YOUTUBE_ENABLED, enabled) }
+
+    internal fun setInstagramEnabled(p: SharedPreferences, enabled: Boolean) = p.edit { putBoolean(KEY_INSTAGRAM_ENABLED, enabled) }
+
+    /** Instagram 기본값(위 설명 참고). 실기기에서 소리 멈춤이 확인되면 바꾼다 */
+    const val INSTAGRAM_DEFAULT = false
 
     /** 끄면 팝업 없이 시스템 알림만 쓴다. */
     fun isPopupEnabled(context: Context): Boolean =
@@ -79,8 +88,10 @@ object DetectionPreferences {
 
     internal fun clearSelectedCharacter(p: SharedPreferences) = p.edit { remove(KEY_SELECTED_CHARACTER) }
 
-    fun enabledPackages(context: Context): Set<String> = buildSet {
-        if (isYouTubeEnabled(context)) add(YouTubeViewIds.PACKAGE)
-        if (isInstagramEnabled(context)) add(InstagramReelsAdapter.PACKAGE)
+    fun enabledPackages(context: Context): Set<String> = enabledPackages(prefs(context))
+
+    internal fun enabledPackages(p: SharedPreferences): Set<String> = buildSet {
+        if (isYouTubeEnabled(p)) add(YouTubeViewIds.PACKAGE)
+        if (isInstagramEnabled(p)) add(InstagramReelsAdapter.PACKAGE)
     }
 }

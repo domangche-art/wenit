@@ -209,6 +209,7 @@
     <string name="records_week">이번 주</string>
     <string name="records_chart_description">이번 주 요일별 시청 시간 막대그래프</string>
     <string name="records_average">하루 평균 %1$s</string>
+    <string name="records_app_totals">이번 주 쇼츠 %1$s · 릴스 %2$s</string>
     <string name="records_change_none">비교할 기록이 아직 부족해요</string>
     <string name="records_change_down">지난주보다 %1$d%% 줄었어요</string>
     <string name="records_change_up">지난주보다 %1$d%% 늘었어요</string>
@@ -260,7 +261,8 @@
     <string name="settings_last_result">마지막 분석: %1$s</string>
     <string name="settings_seed_in_use">예시 데이터 사용 중</string>
     <string name="settings_targets">감지할 앱</string>
-    <string name="settings_instagram">Instagram Reels (실험 중)</string>
+    <string name="settings_instagram">Instagram Reels</string>
+    <string name="settings_instagram_note">릴스는 개입 화면은 뜨지만 영상 소리를 멈추지 못해요. 직접 멈춰 주세요.</string>
     <string name="settings_permissions">권한 상태</string>
     <string name="settings_records">기록</string>
     <string name="settings_delete_all">기록 전체 삭제</string>

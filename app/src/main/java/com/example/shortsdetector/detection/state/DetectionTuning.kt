@@ -38,9 +38,5 @@ data class DetectionTuning(
      */
     val countPartialAsWatch: Boolean = true,
     /** 세로 페이지 전환 신호를 "최근"으로 볼 범위. TODO: VERIFY ON DEVICE */
-    val pagingWindowMs: Long = DetectionConfig.PAGING_WINDOW_MS,
-    /** Instagram: 세로 pager 로 볼 컨테이너 면적비. TODO: VERIFY ON DEVICE */
-    val instagramPagerAreaRatio: Float = DetectionConfig.INSTAGRAM_PAGER_AREA_RATIO,
-    /** Instagram: 진입에 필요한 최근 페이지 전환 수. TODO: VERIFY ON DEVICE */
-    val instagramMinPageFlips: Int = DetectionConfig.INSTAGRAM_MIN_PAGE_FLIPS
+    val pagingWindowMs: Long = DetectionConfig.PAGING_WINDOW_MS
 )

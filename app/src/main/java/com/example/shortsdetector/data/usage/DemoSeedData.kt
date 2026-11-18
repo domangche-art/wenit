@@ -82,6 +82,7 @@ object DemoSeedData {
     private const val BADGE_HOUR = 21
 
     private const val PACKAGE = "com.google.android.youtube"
+    private const val REELS_PACKAGE = "com.instagram.android"
     private const val THRESHOLD_MS = 180_000L
     private const val MS_PER_MINUTE = 60_000L
 
@@ -113,7 +114,9 @@ object DemoSeedData {
         val hour: Int,
         val minute: Int,
         val watchMinutes: Long,
-        val reactions: List<Reaction>
+        val reactions: List<Reaction>,
+        /** 17단계: 인스타그램 릴스 세션. 시나리오 A 에 몇 건 섞는다(합계·반응은 그대로, 앱만 다름) */
+        val reels: Boolean = false
     )
 
     private val BORED = InterventionUserReason.BORED
@@ -146,13 +149,13 @@ object DemoSeedData {
     private val lateNight = listOf(
         Row(7, 23, 10, 38, listOf(i(1), c(1), s(1, back = 6))),
         Row(6, 23, 40, 52, listOf(c(1), c(2, BORED), s(2, BORED, back = 4))),
-        Row(6, 21, 30, 14, listOf(s(1, back = 8))),
+        Row(6, 21, 30, 14, listOf(s(1, back = 8)), reels = true),
         Row(5, 23, 5, 44, listOf(i(2), c(2, PROCRASTINATING), s(2, TIRED, back = 7))),
         // 15단계: Lv.3 "5분만 더 보기" 뒤 Lv.4 캐릭터를 대부분 탭으로 치우고 계속 본다
         Row(4, 22, 50, 61, listOf(i(1), c(1), c(2, BORED), c(3), tap4(), tap4(), drag4(), tap4())),
-        Row(3, 23, 30, 47, listOf(c(1), i(2), s(2, BORED, back = 12))),
+        Row(3, 23, 30, 47, listOf(c(1), i(2), s(2, BORED, back = 12)), reels = true),
         Row(2, 23, 15, 55, listOf(i(1), c(2, TIRED), s(2, TIRED, back = 5))),
-        Row(2, 20, 40, 11, listOf(c(1))),
+        Row(2, 20, 40, 11, listOf(c(1)), reels = true),
         Row(1, 23, 25, 49, listOf(c(1), s(2, TIRED, back = 25))),
         Row(0, 0, 30, 55, listOf())
     )
@@ -181,7 +184,7 @@ object DemoSeedData {
             val watch = row.watchMinutes * MS_PER_MINUTE
             if (start + watch >= nowMs) return@forEachIndexed      // 오늘 몫이 아직 오지 않은 시각이면 넣지 않는다
             sessions += SessionRecord(
-                id, PACKAGE, "seed", start, minOf(start + watch, nowMs - 1), SessionStatus.CLOSED,
+                id, if (row.reels) REELS_PACKAGE else PACKAGE, "seed", start, minOf(start + watch, nowMs - 1), SessionStatus.CLOSED,
                 watch, 0, 0, 0, "HIGH", EndReason, "ROOT_UNAVAILABLE", 0, isSeed = true
             )
             row.reactions.forEachIndexed { n, r ->

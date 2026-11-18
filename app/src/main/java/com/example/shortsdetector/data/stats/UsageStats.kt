@@ -16,6 +16,7 @@ import com.example.shortsdetector.data.usage.InterventionRecord
 import com.example.shortsdetector.data.usage.InterventionReturn
 import com.example.shortsdetector.data.usage.InterventionUserReason
 import com.example.shortsdetector.data.usage.SessionRecord
+import com.example.shortsdetector.data.usage.ShortformSource
 import com.example.shortsdetector.intervention.character.Characters
 import com.example.shortsdetector.intervention.InterventionKind
 import com.example.shortsdetector.intervention.InterventionLevels
@@ -65,7 +66,9 @@ data class WeekStats(
     val changeRatio: Double?,
     val levelStopRates: List<LevelStopRate>,
     /** 지난주 월~일 중 시청 기록이 있는 날 수 */
-    val previousWeekRecordDays: Int
+    val previousWeekRecordDays: Int,
+    /** 이번 주 앱별 시청 합계(17단계). [ShortformSource] 순서로 모든 앱이 한 줄씩. 합계·목표는 두 앱을 합친 [totalWatchMs] 를 쓴다 */
+    val appTotals: List<AppWatch> = emptyList()
 ) {
     /** 지난주 기록이 적으면 비율이 의미 없이 커진다. 숫자를 깎지 않고 비교를 숨긴다. */
     val canCompare: Boolean get() = changeRatio != null && previousWeekRecordDays >= MIN_COMPARE_DAYS
@@ -96,8 +99,22 @@ data class RecentUsageStats(
     val deliveredInterventions: Int,
     val levelOutcomes: List<LevelOutcomes>,
     val lv2Reasons: List<ReasonCount>,
-    val behavior: InterventionBehavior
+    val behavior: InterventionBehavior,
+    /** 앱별 시청 비율·멈춤률(17단계). [ShortformSource] 순서로 모든 앱이 한 줄씩 */
+    val apps: List<AppUsage> = emptyList()
 )
+
+/** 앱별 시청 시간 */
+data class AppWatch(val source: ShortformSource, val watchMs: Long)
+
+/**
+ * 앱별 이용 집계(17단계). 에이전트에는 패키지 이름 대신 [ShortformSource.agentKey] 로 보낸다.
+ * @param watchShare 전체 시청 중 이 앱의 비율. 전체가 0 이면 null
+ * @param samples 이 앱 세션에서 답한 개입 수(멈춤·계속 보기·무응답). 표본이 적으면 [stopRate] 는 null
+ */
+data class AppUsage(val source: ShortformSource, val watchMs: Long, val watchShare: Double?, val samples: Int, val stopRate: Double?) {
+    val enough: Boolean get() = samples >= InterventionBehavior.MIN_SAMPLES
+}
 
 /** 단계별 반응 비율. 표본이 적으면 비율은 null 이다. */
 data class LevelRate(val level: Int, val samples: Int, val stopRate: Double?, val continueRate: Double?)
@@ -363,8 +380,34 @@ object UsageStatsCalculator {
             changeMs = total - previous,
             changeRatio = if (previous > 0L) (total - previous).toDouble() / previous else null,
             levelStopRates = levelStopRates(thisWeek),
-            previousWeekRecordDays = recordDays
+            previousWeekRecordDays = recordDays,
+            appTotals = ShortformSource.entries.map { s ->
+                AppWatch(s, DailyUsageCalculator.aggregate(counted.filter { ShortformSource.of(it.packageName) == s }, zone, monday, date)
+                    .sumOf { it.estimatedWatchMs })
+            }
         )
+    }
+
+    /**
+     * 앱별 시청 비율과 멈춤률. 개입은 세션 id 로 앱을 찾는다(세션 없는 개입, 모르는 앱은 뺀다).
+     * 멈춤률은 단계별 비율과 같은 규칙: 답한 기록만 표본, [InterventionBehavior.MIN_SAMPLES] 미만이면 null.
+     */
+    private fun appUsage(sessions: List<SessionRecord>, inRange: List<SessionRecord>, delivered: List<InterventionRecord>): List<AppUsage> {
+        val sourceOf = sessions.associate { it.id to ShortformSource.of(it.packageName) }
+        val total = inRange.sumOf { it.estimatedWatchMs }
+        val answered = delivered.filter { it.outcome in REACTED }
+        return ShortformSource.entries.map { s ->
+            val watch = inRange.filter { ShortformSource.of(it.packageName) == s }.sumOf { it.estimatedWatchMs }
+            val mine = answered.filter { r -> r.sessionId?.let(sourceOf::get) == s }
+            val n = mine.size
+            AppUsage(
+                s, watch,
+                if (total > 0L) watch.toDouble() / total else null,
+                n,
+                (mine.count { it.outcome == InterventionOutcome.STOPPED }.toDouble() / n)
+                    .takeIf { n >= InterventionBehavior.MIN_SAMPLES }
+            )
+        }
     }
 
     fun recent(
@@ -402,7 +445,8 @@ object UsageStatsCalculator {
             lv2Reasons = delivered.filter(::isQuestion).mapNotNull { it.userReason }
                 .groupingBy { it }.eachCount().map { (reason, n) -> ReasonCount(reason, n) }
                 .sortedByDescending { it.count },
-            behavior = behavior(delivered, zone)
+            behavior = behavior(delivered, zone),
+            apps = appUsage(counted, inRange, delivered)
         )
     }
 

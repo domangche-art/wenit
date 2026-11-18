@@ -19,7 +19,7 @@ object DetectionConfig {
     /*
      * 감시 대상 패키지와 쇼츠 플레이어 ID 는 앱별 어댑터로 옮겼다.
      *  - YouTube: detection/adapters/youtube/YouTubeViewIds.kt  (reel_watch_player 등)
-     *  - Instagram: detection/adapters/instagram/InstagramReelsAdapter.kt
+     *  - Instagram: detection/adapters/instagram/InstagramReelsAdapter.kt (규칙 ig-1, 17단계 실기기 덤프)
      *
      * 뷰 ID 는 **전체 문자열 정확히 일치로만 비교한다.**
      * (부분 일치 금지 — 예: "reel_time_bar" 는 일반 영상 화면에도 존재한다.)
@@ -143,9 +143,4 @@ object DetectionConfig {
     /** 트리 순회 상한. 덤프 기준 쇼츠 화면은 약 130 노드. */
     const val MAX_NODES_VISITED = 1_500
 
-    /** Instagram(실험적): pager 형 컨테이너로 볼 면적비. TODO: VERIFY ON DEVICE */
-    const val INSTAGRAM_PAGER_AREA_RATIO = 0.80f
-
-    /** Instagram(실험적): 새 진입에 필요한 최근 페이지 넘김 수. TODO: VERIFY ON DEVICE */
-    const val INSTAGRAM_MIN_PAGE_FLIPS = 2
 }
