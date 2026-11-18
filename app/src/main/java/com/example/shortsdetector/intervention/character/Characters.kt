@@ -294,6 +294,15 @@ object Lv4CharacterRules {
     }
 
     /**
+     * 캐릭터를 따라가는 말풍선의 왼쪽 위치(화면 좌표): 말풍선 가운데를 캐릭터 가운데 [centerX] 에 맞추되,
+     * [minLeft]..[maxRight] 밖으로 나가지 않게 좌우 끝에서 멈춘다. 말풍선이 그 폭보다 넓으면 [minLeft] 에 붙인다.
+     */
+    fun bubbleLeft(centerX: Int, bubbleWidth: Int, minLeft: Int, maxRight: Int): Int {
+        if (bubbleWidth >= maxRight - minLeft) return minLeft
+        return (centerX - bubbleWidth / 2).coerceIn(minLeft, maxRight - bubbleWidth)
+    }
+
+    /**
      * 끌기를 놓았을 때 화면 밖으로 밀어낸 것인가: 캐릭터 가운데가 화면 밖으로 나갔다(절반 넘게 나감).
      * 창 위치가 아니라 손가락으로 옮긴 위치로 판정한다(시스템이 창을 화면 안으로 잡아 둘 수 있다).
      */

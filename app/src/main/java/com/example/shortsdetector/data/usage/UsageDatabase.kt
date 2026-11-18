@@ -33,6 +33,7 @@ class UsageDatabase private constructor(context: Context) :
         UsageSchema.MIGRATE_7_TO_8.forEach(db::execSQL)
         UsageSchema.MIGRATE_8_TO_9.forEach(db::execSQL)
         UsageSchema.MIGRATE_9_TO_10.forEach(db::execSQL)
+        UsageSchema.MIGRATE_10_TO_11.forEach(db::execSQL)
     }
 
     /** SQLiteOpenHelper 가 트랜잭션으로 감싸 호출한다. 기존 기록은 지우지 않는다. */

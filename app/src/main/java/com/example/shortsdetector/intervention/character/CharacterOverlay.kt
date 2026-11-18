@@ -54,6 +54,9 @@ class CharacterOverlay(
 
         /** 캐릭터가 치워졌다. 캐릭터 창은 이미 지웠다(퇴장 창 애니메이션). 한 번만 온다. */
         fun onCleared(how: CharacterDismissal)
+
+        /** 캐릭터 창이 가로로 움직였다(걷기·끌기·크기 변경, 처음 표시 포함). [centerX] 는 캐릭터 가운데의 화면 x 좌표 */
+        fun onMoved(centerX: Int) {}
     }
 
     private var view: ImageView? = null
@@ -104,6 +107,7 @@ class CharacterOverlay(
             anchor = null
             blocking = b
             b.startIdle(v)
+            b.notifyMoved()
             Log.i(
                 ShortsDetectionService.TAG,
                 "Lv.4 캐릭터 표시: ${spec.id} ${home.width}x${home.height} at (${b.x}, ${b.y}) 탭=${Lv4CharacterRules.tapsNeeded(spec.lv4)}"
@@ -137,6 +141,7 @@ class CharacterOverlay(
         } catch (e: RuntimeException) {
             Log.w(ShortsDetectionService.TAG, "Lv.4 캐릭터 크기 변경 실패: ${e.javaClass.simpleName}")
         }
+        b.notifyMoved()
     }
 
     /** 퇴장 창 애니메이션을 바꾼 뒤 지운다. */
@@ -156,6 +161,7 @@ class CharacterOverlay(
         val v = view ?: return
         val p = params ?: return
         if (p.x == nx && p.y == ny) return
+        val movedX = p.x != nx
         p.x = nx
         p.y = ny
         try {
@@ -163,6 +169,7 @@ class CharacterOverlay(
         } catch (e: RuntimeException) {
             Log.w(ShortsDetectionService.TAG, "Lv.4 캐릭터 이동 실패: ${e.javaClass.simpleName}")
         }
+        if (movedX) blocking?.notifyMoved()
     }
 
     /**
@@ -204,6 +211,16 @@ class CharacterOverlay(
             }
             y = home.y
             return home
+        }
+
+        /** 지금 캐릭터 가운데 x 를 알린다. 알림이 실패해도 캐릭터는 그대로다 */
+        fun notifyMoved() {
+            if (cleared) return
+            try {
+                listener.onMoved(x + home.width / 2)
+            } catch (e: RuntimeException) {
+                Log.w(ShortsDetectionService.TAG, "Lv.4 캐릭터 위치 알림 실패: ${e.javaClass.simpleName}")
+            }
         }
 
         private val walkMin get() = screen.left - padX

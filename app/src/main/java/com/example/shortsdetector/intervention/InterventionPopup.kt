@@ -26,6 +26,7 @@ import com.example.shortsdetector.intervention.character.CharacterOverlay
 import com.example.shortsdetector.intervention.character.CharacterSpec
 import com.example.shortsdetector.intervention.character.Characters
 import com.example.shortsdetector.intervention.character.Lv4CharacterRules
+import com.example.shortsdetector.intervention.character.Lv4Idle
 import com.example.shortsdetector.ui.WenitActivity
 
 /**
@@ -149,6 +150,9 @@ class InterventionPopup(
     private var lineIndex = 0
     private var slotBase: Pair<Int, Int>? = null
     private var blockWatchMs = 0L
+
+    /** 걷는 캐릭터의 지금 가운데 x(화면 좌표). 말풍선이 따라간다. null 이면 말풍선은 제자리(가운데) */
+    private var bubbleFollowX: Int? = null
 
     /** 이번 개입에서 허용 시간 버튼을 보여 줄지(남은 시간). 0 이면 숨긴다. */
     private var allowanceLeftMs = 0L
@@ -308,6 +312,11 @@ class InterventionPopup(
             spec.lines
         }
         lineIndex = 0
+        bubbleFollowX = null
+        // 대사가 바뀌어 말풍선 폭이 달라지면 걷는 캐릭터 위치에 다시 맞춘다
+        v.findViewById<View>(R.id.lv4Bubble).addOnLayoutChangeListener { _, l, _, r, _, oldL, _, oldR, _ ->
+            if (view === v && (r - l) != (oldR - oldL)) followBubble(v)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) v.isForceDarkAllowed = false
         val metrics = service.resources.displayMetrics
         val art = service.getDrawable(CharacterArt.lv4(service, spec))
@@ -343,6 +352,12 @@ class InterventionPopup(
             override fun onCleared(how: CharacterDismissal) {
                 if (view === v) host.answer(InterventionOutcome.CONTINUED, how)
             }
+
+            override fun onMoved(centerX: Int) {
+                if (view !== v || spec.lv4.idle != Lv4Idle.WALK) return
+                bubbleFollowX = centerX
+                followBubble(v)
+            }
         })
         if (shown) scheduleLines(v, spec)
         if (!shown) {
@@ -359,6 +374,24 @@ class InterventionPopup(
         val line = Lv4CharacterRules.lineAt(blockLines, lineIndex)?.let { CharacterLineRules.fill(it, blockWatchMs) }
         bubble.text = line.orEmpty()
         bubble.visibility = if (line == null) View.GONE else View.VISIBLE
+    }
+
+    /**
+     * 걷는 캐릭터(터덜이)의 말풍선을 캐릭터 가운데로 옮긴다(가로만, 레이아웃 없이 translationX).
+     * 막의 안쪽 여백 안에서 좌우 끝에 닿으면 멈춘다([Lv4CharacterRules.bubbleLeft]). 대사가 바뀌어 폭이 달라지면 다시 맞춘다.
+     */
+    private fun followBubble(v: View) {
+        val cx = bubbleFollowX ?: return
+        val bubble = v.findViewById<View>(R.id.lv4Bubble)
+        if (bubble.width <= 0 || v.width <= 0) return
+        val at = IntArray(2)
+        v.getLocationOnScreen(at)
+        val minLeft = at[0] + v.paddingLeft
+        val maxRight = at[0] + v.width - v.paddingRight
+        bubble.getLocationOnScreen(at)
+        val naturalLeft = at[0] - bubble.translationX.toInt()
+        val left = Lv4CharacterRules.bubbleLeft(cx, bubble.width, minLeft, maxRight)
+        bubble.translationX = (left - naturalLeft).toFloat()
     }
 
     private fun nextLine(v: View) {

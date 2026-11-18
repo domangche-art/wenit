@@ -586,7 +586,7 @@ class PolicyAgentTest {
 
     @Test
     fun `migration 4 to 5 only adds columns`() {
-        assertEquals(10, UsageSchema.VERSION)     // 15단계: dismiss_method 추가
+        assertEquals(11, UsageSchema.VERSION)     // 16단계: character_id 추가
         assertTrue(UsageSchema.MIGRATE_5_TO_6.single().let { it.startsWith("ALTER TABLE policy_changes") && "ADD COLUMN is_seed" in it })
         assertTrue(UsageSchema.MIGRATE_4_TO_5.all { it.startsWith("ALTER TABLE") && "ADD COLUMN is_seed" in it })
     }

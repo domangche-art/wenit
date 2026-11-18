@@ -281,18 +281,19 @@ class InterventionStep15Test {
     // --- [3] 캐릭터 구조 ---
 
     @Test
-    fun `one character is registered with the requested values`() {
+    fun `the default character keeps its art and has the stage 16 values`() {
+        // 16단계: 캐릭터 4종, 다정이는 탭 2번·통통 튀기·대사 있음(15단계는 1종·3번·흔들기·대사 없음)
         val kind = Characters.byId("kind")
-        assertEquals(listOf("kind"), Characters.ALL.map { it.id })
+        assertEquals("kind", Characters.ALL.first().id)
         assertEquals("다정이", kind.name)
         assertTrue(kind.personality.isNotBlank())
         assertEquals(R.drawable.wenit_character, kind.baseArt)
         assertNull(kind.lv4Art)
         assertEquals(R.drawable.wenit_character, kind.lv4ArtOrBase)
-        assertEquals(3, kind.lv4.tapsToClear)
+        assertEquals(2, kind.lv4.tapsToClear)
         assertEquals(Lv4Entrance.DROP, kind.lv4.entrance)
-        assertEquals(Lv4TapReaction.SHAKE, kind.lv4.tapReaction)
-        assertTrue(kind.lines.isEmpty())
+        assertEquals(Lv4TapReaction.BOUNCE, kind.lv4.tapReaction)
+        assertTrue(kind.lines.isNotEmpty())
     }
 
     @Test
@@ -315,9 +316,9 @@ class InterventionStep15Test {
     @Test
     fun `taps count down to zero and at least one tap is needed`() {
         val b = Characters.DEFAULT.lv4
-        assertEquals(listOf(3, 2, 1, 0, 0), (0..4).map { Lv4CharacterRules.tapsLeft(b, it) })
-        assertFalse(Lv4CharacterRules.cleared(b, 2))
-        assertTrue(Lv4CharacterRules.cleared(b, 3))
+        assertEquals(listOf(2, 1, 0, 0), (0..3).map { Lv4CharacterRules.tapsLeft(b, it) })
+        assertFalse(Lv4CharacterRules.cleared(b, 1))
+        assertTrue(Lv4CharacterRules.cleared(b, 2))
         assertEquals(1, Lv4CharacterRules.tapsNeeded(b.copy(tapsToClear = 0)))
     }
 
@@ -398,7 +399,7 @@ class InterventionStep15Test {
 
     @Test
     fun `schema 10 only adds the dismissal column, the first value is kept`() {
-        assertEquals(10, UsageSchema.VERSION)
+        assertEquals(11, UsageSchema.VERSION)   // 16단계에 11(character_id). 9→10 은 그대로다
         assertEquals(listOf("ALTER TABLE interventions ADD COLUMN dismiss_method TEXT"), UsageSchema.MIGRATE_9_TO_10)
         store.insertIntervention(InterventionRecord("x", null, 1, InterventionMethod.POPUP, 0, 0, level = 4))
         store.setInterventionDismissal("x", CharacterDismissal.DRAG)

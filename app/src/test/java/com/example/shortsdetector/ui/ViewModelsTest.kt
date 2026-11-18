@@ -910,4 +910,30 @@ class ViewModelsTest {
         dev.setAllowanceDemo30s(true)
         assertTrue(dev.state.value.allowanceDemo30s)
     }
+
+    @Test
+    fun `picking a character saves it at once, speaks a line, and ignores unknown ids`() {
+        val vm = CharacterPickViewModel(repo)
+        vm.refresh()
+        assertEquals("기존 사용자는 다정이", "kind", vm.state.value.selectedId)
+        vm.select("trudge")
+        assertEquals("trudge", repo.characterId)
+        assertEquals("trudge", vm.state.value.selectedId)
+        assertEquals("trudge", vm.state.value.speakingId)
+        val first = vm.state.value.line
+        assertTrue(first != null && "{분}" !in first)
+        vm.select("trudge")
+        assertTrue("다시 누르면 다음 대사", vm.state.value.line != first)
+        assertEquals(2, vm.state.value.tick)
+        vm.select("removed")
+        assertEquals("trudge", repo.characterId)
+        assertEquals(2, vm.state.value.tick)
+    }
+
+    @Test
+    fun `developer preview asks for the chosen character`() {
+        val dev = DeveloperViewModel(repo, Direct)
+        dev.previewLv4("fierce")
+        assertEquals(listOf("fierce"), repo.previews)
+    }
 }
