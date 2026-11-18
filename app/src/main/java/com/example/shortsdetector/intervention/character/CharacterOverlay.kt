@@ -2,7 +2,10 @@ package com.example.shortsdetector.intervention.character
 
 import android.accessibilityservice.AccessibilityService
 import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.os.Build
 import android.util.Log
 import android.view.MotionEvent
@@ -10,7 +13,10 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
+import android.view.animation.LinearInterpolator
 import android.widget.ImageView
+import kotlin.math.PI
+import kotlin.math.sin
 import com.example.shortsdetector.R
 import androidx.annotation.StyleRes
 import com.example.shortsdetector.ShortsDetectionService
@@ -55,62 +61,40 @@ class CharacterOverlay(
     private var anchor: CharacterAnchor? = null
     private var baseWidth = 0
     private var baseHeight = 0
-    private var shake: Animator? = null
+    private var blocking: Blocking? = null
 
     val isShowing: Boolean get() = view != null
 
     /**
-     * Lv.4: [slot](화면 좌표) 자리에 캐릭터를 띄운다. 위에서 떨어지듯 나타나고(창 애니메이션), 탭할 때마다 흔들리며,
-     * 필요한 횟수만큼 탭하거나 끌어서 화면 밖으로 밀어내면 사라지고 [listener] 에 알린다.
+     * Lv.4: [slot](화면 좌표) 자리에 캐릭터를 띄운다. 캐릭터마다 정해진 방식으로 나타나고(창 애니메이션) 움직이며([Lv4Idle]),
+     * 탭할 때마다 반응하고([Lv4TapReaction]), 필요한 횟수만큼 탭하거나 끌어서 화면 밖으로 밀어내면 사라지고 [listener] 에 알린다.
      *
      * 개입 옆 캐릭터 설정([enabled])과 상관없다. 실패하면 false 이고, 호출 측은 캐릭터 없이 끝낼 수 있는 버튼을 보여 줘야 한다.
-     * 뷰는 처음부터 보이는 모습(투명 아님, 회전 0)으로 그린다. 흔들림은 쉬는 모습에서 시작해 쉬는 모습으로 끝나므로 화면 프레임이
-     * 멈춰도 캐릭터는 보인다(14-2단계).
+     * 뷰는 처음부터 보이는 모습(투명 아님, 회전 0)으로 그린다. 움직임과 반응은 쉬는 모습에서 시작해 쉬는 모습으로 돌아오므로
+     * 화면 프레임이 멈춰도 캐릭터는 보인다(14-2단계). 그림 한 장을 코드로 움직인다(16단계).
      */
     fun showBlocking(slot: Box, spec: CharacterSpec, listener: BlockingListener): Boolean {
         dismiss()
         val wm = service.getSystemService(WindowManager::class.java) ?: return skipped("Lv.4 WindowManager 없음")
         if (slot.width <= 0 || slot.height <= 0) return skipped("Lv.4 자리 없음 slot=$slot")
         return try {
-            val drawable = service.getDrawable(spec.lv4ArtOrBase) ?: return skipped("Lv.4 그림 없음")
-            val padX = (slot.width * SHAKE_ROOM).toInt()
-            val padY = (slot.height * SHAKE_ROOM).toInt()
-            val home = Placement(slot.left - padX, slot.top - padY, slot.width + padX * 2, slot.height + padY * 2)
-            val screen = screenBox(wm)
-            var taps = 0
-            var cleared = false
-            lateinit var v: ImageView
-            fun clear(how: CharacterDismissal) {
-                if (cleared) return
-                cleared = true
-                v.isClickable = false
-                leaveWith(
-                    if (how == CharacterDismissal.TAP) R.style.CharacterLv4FlingWindowAnimation
-                    else R.style.CharacterLv4DragOutWindowAnimation
-                )
-                Log.i(ShortsDetectionService.TAG, "Lv.4 캐릭터 치움: $how 탭=$taps")
-                listener.onCleared(how)
-            }
-            v = ImageView(service).apply {
+            val drawable = service.getDrawable(CharacterArt.lv4(service, spec)) ?: return skipped("Lv.4 그림 없음")
+            val b = Blocking(spec, screenBox(wm), listener)
+            val home = b.place(slot)
+            val v = ImageView(service).apply {
                 setImageDrawable(drawable)
                 scaleType = ImageView.ScaleType.FIT_CENTER
-                setPadding(padX, padY, padX, padY)
+                setPadding(b.padX, b.padY, b.padX, b.padY)
                 contentDescription = service.getString(R.string.popup_lv4_character_description, spec.name)
                 // 접근성(TalkBack 두 번 탭)도 같은 탭으로 센다. 손가락 탭은 아래 터치 처리에서 performClick 으로 온다.
-                setOnClickListener {
-                    if (cleared) return@setOnClickListener
-                    taps++
-                    val left = Lv4CharacterRules.tapsLeft(spec.lv4, taps)
-                    listener.onTap(taps, left)
-                    if (left == 0) clear(CharacterDismissal.TAP) else react(this, spec.lv4.tapReaction)
-                }
-                setOnTouchListener(BlockingDrag(home, screen, onOut = { clear(CharacterDismissal.DRAG) }))
+                setOnClickListener { b.tapped(this) }
+                setOnTouchListener(BlockingDrag(b))
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) isForceDarkAllowed = false
             }
             val p = OverlayWindows.floatingParams(home.width, home.height).apply {
-                x = home.x
-                y = home.y
-                // 끌 때 화면 밖으로 나갈 수 있게 한다. TODO: VERIFY ON DEVICE — 제조사 ROM 이 창을 화면 안으로 잡아 두는지
+                x = b.x
+                y = b.y
+                // 끌 때(그리고 걸을 때) 화면 밖으로 나갈 수 있게 한다
                 flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
                 windowAnimations = spec.lv4.entrance.windowAnimation
             }
@@ -118,13 +102,40 @@ class CharacterOverlay(
             view = v
             params = p
             anchor = null
-            Log.i(ShortsDetectionService.TAG, "Lv.4 캐릭터 표시: ${home.width}x${home.height} at (${home.x}, ${home.y}) 탭=${Lv4CharacterRules.tapsNeeded(spec.lv4)}")
+            blocking = b
+            b.startIdle(v)
+            Log.i(
+                ShortsDetectionService.TAG,
+                "Lv.4 캐릭터 표시: ${spec.id} ${home.width}x${home.height} at (${b.x}, ${b.y}) 탭=${Lv4CharacterRules.tapsNeeded(spec.lv4)}"
+            )
             OverlayFrameWatch.watch(v, "Lv.4 캐릭터")
             true
         } catch (e: RuntimeException) {
             Log.w(ShortsDetectionService.TAG, "Lv.4 캐릭터 표시 실패: ${e.javaClass.simpleName}")
             dismiss()
             false
+        }
+    }
+
+    /**
+     * Lv.4 캐릭터 자리가 바뀌었다(탭할수록 커지는 캐릭터: 막 안의 자리가 커진다). 창과 그림을 새 자리에 맞춘다.
+     * 걷는 캐릭터는 지금 걷던 가로 위치를 유지한다.
+     */
+    fun resizeBlocking(slot: Box) {
+        val b = blocking ?: return
+        val v = view ?: return
+        val p = params ?: return
+        if (slot.width <= 0 || slot.height <= 0) return
+        val home = b.place(slot, keepX = true)
+        v.setPadding(b.padX, b.padY, b.padX, b.padY)
+        p.width = home.width
+        p.height = home.height
+        p.x = b.x
+        p.y = b.y
+        try {
+            service.getSystemService(WindowManager::class.java)?.updateViewLayout(v, p)
+        } catch (e: RuntimeException) {
+            Log.w(ShortsDetectionService.TAG, "Lv.4 캐릭터 크기 변경 실패: ${e.javaClass.simpleName}")
         }
     }
 
@@ -141,56 +152,240 @@ class CharacterOverlay(
         dismiss()
     }
 
-    /** 탭 반응. 회전 0 에서 시작해 0 으로 끝난다. 앞선 반응은 멈추고 쉬는 모습으로 되돌린 뒤 다시 시작한다. */
-    private fun react(v: View, reaction: Lv4TapReaction) {
-        shake?.cancel()
-        v.rotation = 0f
-        shake = when (reaction) {
-            Lv4TapReaction.SHAKE -> ObjectAnimator.ofFloat(v, View.ROTATION, 0f, -14f, 12f, -8f, 5f, 0f).setDuration(SHAKE_MS)
-        }.also { it.start() }
+    private fun moveBlockingWindow(nx: Int, ny: Int) {
+        val v = view ?: return
+        val p = params ?: return
+        if (p.x == nx && p.y == ny) return
+        p.x = nx
+        p.y = ny
+        try {
+            service.getSystemService(WindowManager::class.java)?.updateViewLayout(v, p)
+        } catch (e: RuntimeException) {
+            Log.w(ShortsDetectionService.TAG, "Lv.4 캐릭터 이동 실패: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * 떠 있는 Lv.4 캐릭터 하나의 상태: 자리, 탭 수, 대기 움직임, 탭 반응.
+     * 대기 움직임과 탭 반응은 뷰의 회전·이동·좌우 뒤집기만 쓴다(투명도·크기 0 은 쓰지 않는다).
+     */
+    private inner class Blocking(val spec: CharacterSpec, val screen: Box, val listener: BlockingListener) {
+        /** 캐릭터 창의 제자리. 걷는 캐릭터는 세로 위치와 크기만 쓴다 */
+        var home = Placement(0, 0, 0, 0)
+            private set
+        var padX = 0
+            private set
+        var padY = 0
+            private set
+
+        /** 창의 지금 위치(끌기·걷기로 바뀐다) */
+        var x = 0
+        var y = 0
+        private var taps = 0
+        private var cleared = false
+        private var idle: Animator? = null
+        private var reaction: Animator? = null
+        private var direction = -1
+        private var holds = 0
+        private var lastFrameNs = 0L
+        private var carry = 0f
+        private val walks get() = spec.lv4.idle == Lv4Idle.WALK
+
+        /** 자리 [slot] 에 맞춰 창 크기와 위치를 정한다. 그림 둘레에 움직임이 잘리지 않을 여백을 둔다. */
+        fun place(slot: Box, keepX: Boolean = false): Placement {
+            padX = (slot.width * MOTION_ROOM).toInt()
+            padY = (slot.height * MOTION_ROOM).toInt()
+            home = Placement(slot.left - padX, slot.top - padY, slot.width + padX * 2, slot.height + padY * 2)
+            // 걷는 캐릭터는 화면 오른쪽 끝에서 시작한다(그림이 왼쪽을 보고 있어 왼쪽으로 걷는다)
+            x = when {
+                !walks -> home.x
+                keepX -> x.coerceIn(walkMin, walkMax)
+                else -> walkMax
+            }
+            y = home.y
+            return home
+        }
+
+        private val walkMin get() = screen.left - padX
+        private val walkMax get() = screen.right - home.width + padX
+
+        fun tapped(v: View) {
+            if (cleared) return
+            taps++
+            val left = Lv4CharacterRules.tapsLeft(spec.lv4, taps)
+            listener.onTap(taps, left)
+            if (left == 0) clear(v, CharacterDismissal.TAP) else react(v)
+        }
+
+        fun clear(v: View, how: CharacterDismissal) {
+            if (cleared) return
+            cleared = true
+            v.isClickable = false
+            leaveWith(
+                if (how == CharacterDismissal.TAP) R.style.CharacterLv4FlingWindowAnimation
+                else R.style.CharacterLv4DragOutWindowAnimation
+            )
+            Log.i(ShortsDetectionService.TAG, "Lv.4 캐릭터 치움: $how 탭=$taps")
+            listener.onCleared(how)
+        }
+
+        fun startIdle(v: View) {
+            idle = when (spec.lv4.idle) {
+                Lv4Idle.NONE -> null
+                Lv4Idle.WAVE -> swing(v, WAVE_DEGREES, WAVE_MS)
+                Lv4Idle.FLUTTER -> swing(v, FLUTTER_DEGREES, FLUTTER_MS)
+                Lv4Idle.WALK -> ValueAnimator.ofFloat(0f, 1f).apply {
+                    duration = WALK_BOB_MS
+                    repeatCount = ValueAnimator.INFINITE
+                    interpolator = LinearInterpolator()
+                    addUpdateListener { step(v, it.animatedFraction) }
+                }
+            }?.also { it.start() }
+        }
+
+        private fun swing(v: View, degrees: Float, ms: Long): Animator =
+            ObjectAnimator.ofFloat(v, View.ROTATION, 0f, -degrees, 0f, degrees, 0f).apply {
+                duration = ms
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+            }
+
+        /** 걷기 한 프레임: 지난 시간만큼 창을 옮기고 좌우로 살짝 기운다. 멈춰 있는 동안(끌기·돌아보기)은 옮기지 않는다. */
+        private fun step(v: View, fraction: Float) {
+            val now = System.nanoTime()
+            val dtMs = if (lastFrameNs == 0L) 0L else ((now - lastFrameNs) / NS_PER_MS).coerceAtMost(MAX_FRAME_MS)
+            lastFrameNs = now
+            if (holds > 0 || cleared) return
+            v.rotation = WALK_DEGREES * sin(fraction * 2.0 * PI).toFloat()
+            // 한 프레임에 1px 이 안 되는 거리는 모아 두었다가 옮긴다(주사율과 상관없이 같은 속도)
+            carry += (walkMax - walkMin).toFloat() * dtMs / WALK_CROSS_MS
+            val distance = carry.toInt()
+            if (distance == 0) return
+            carry -= distance
+            val (nx, nd) = Lv4CharacterRules.walk(x, direction, distance, walkMin, walkMax)
+            x = nx
+            if (nd != direction) {
+                direction = nd
+                face(v)
+            }
+            moveBlockingWindow(x, y)
+        }
+
+        /** 그림은 왼쪽을 보고 있다. 오른쪽으로 걸을 때 좌우를 뒤집는다 */
+        private fun face(v: View, lookingBack: Boolean = false) {
+            val right = (direction > 0) != lookingBack
+            v.scaleX = if (right) -1f else 1f
+        }
+
+        /** 걷기를 잠깐 세운다(끌기, 돌아보기). [release] 로 푼다 */
+        fun hold(v: View) {
+            holds++
+            if (walks) v.rotation = 0f
+        }
+
+        fun release() {
+            if (holds > 0) holds--
+        }
+
+        /** 탭 반응. 대기 움직임을 잠깐 멈추고 쉬는 모습에서 시작해 쉬는 모습으로 끝난다. */
+        private fun react(v: View) {
+            reaction?.cancel()
+            val h = home.height.toFloat()
+            val a: Animator? = when (spec.lv4.tapReaction) {
+                Lv4TapReaction.SHAKE ->
+                    ObjectAnimator.ofFloat(v, View.ROTATION, 0f, -14f, 12f, -8f, 5f, 0f).setDuration(SHAKE_MS)
+                Lv4TapReaction.BOUNCE ->
+                    ObjectAnimator.ofFloat(v, View.TRANSLATION_Y, 0f, -h * 0.09f, 0f, -h * 0.05f, 0f).setDuration(BOUNCE_MS)
+                Lv4TapReaction.STOMP -> AnimatorSet().apply {
+                    playTogether(
+                        ObjectAnimator.ofFloat(v, View.ROTATION, 0f, -6f, 5f, -3f, 0f),
+                        ObjectAnimator.ofFloat(v, View.TRANSLATION_Y, 0f, h * 0.03f, 0f, h * 0.03f, 0f)
+                    )
+                    duration = STOMP_MS
+                }
+                Lv4TapReaction.LOOK_BACK -> {
+                    // 걸음을 멈추고 잠깐 돌아본 뒤 다시 걷는다. 뷰 애니메이션이 아니라 좌우 뒤집기와 타이머다(프레임이 멈춰도 풀린다)
+                    hold(v)
+                    face(v, lookingBack = true)
+                    v.postDelayed({
+                        if (view === v && !cleared) face(v)
+                        release()
+                    }, LOOK_BACK_MS)
+                    null
+                }
+            }
+            if (a == null) return
+            idle?.pause()
+            v.rotation = 0f
+            v.translationY = 0f
+            a.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    v.rotation = 0f
+                    v.translationY = 0f
+                    if (reaction === animation) {
+                        reaction = null
+                        idle?.resume()
+                    }
+                }
+            })
+            reaction = a
+            a.start()
+        }
+
+        fun stop() {
+            reaction?.cancel()
+            reaction = null
+            idle?.cancel()
+            idle = null
+        }
     }
 
     /**
      * Lv.4 캐릭터 끌기. 손가락이 터치 슬롭보다 움직이면 끌기로 보고 창을 따라 옮긴다. 놓았을 때 가운데가 화면 밖이면 치운 것,
-     * 아니면 제자리로 돌아간다. 움직이지 않고 놓으면 탭(performClick)이다.
+     * 아니면 끌기 전 자리로 돌아간다. 움직이지 않고 놓으면 탭(performClick)이다. 걷는 캐릭터는 끄는 동안 걸음을 멈춘다.
      */
-    private inner class BlockingDrag(
-        private val home: Placement,
-        private val screen: Box,
-        private val onOut: () -> Unit
-    ) : View.OnTouchListener {
+    private inner class BlockingDrag(private val b: Blocking) : View.OnTouchListener {
         private val slop = ViewConfiguration.get(service).scaledTouchSlop
         private var downX = 0f
         private var downY = 0f
+        private var baseX = 0
+        private var baseY = 0
         private var dragging = false
-        private var x = home.x
-        private var y = home.y
 
         override fun onTouch(v: View, e: MotionEvent): Boolean {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = e.rawX
                     downY = e.rawY
+                    baseX = b.x
+                    baseY = b.y
                     dragging = false
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX
                     val dy = e.rawY - downY
-                    if (!dragging && dx * dx + dy * dy > slop * slop) dragging = true
-                    if (dragging) moveTo(home.x + dx.toInt(), home.y + dy.toInt())
+                    if (!dragging && dx * dx + dy * dy > slop * slop) {
+                        dragging = true
+                        b.hold(v)
+                    }
+                    if (dragging) moveTo(baseX + dx.toInt(), baseY + dy.toInt())
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!dragging) {
                         v.performClick()
-                    } else if (Lv4CharacterRules.draggedOut(Placement(x, y, home.width, home.height).box, screen)) {
-                        onOut()
+                    } else if (Lv4CharacterRules.draggedOut(Placement(b.x, b.y, b.home.width, b.home.height).box, b.screen)) {
+                        b.clear(v, CharacterDismissal.DRAG)
                     } else {
-                        moveTo(home.x, home.y)
+                        moveTo(baseX, baseY)
+                        b.release()
                     }
                     dragging = false
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    if (dragging) moveTo(home.x, home.y)
+                    if (dragging) {
+                        moveTo(baseX, baseY)
+                        b.release()
+                    }
                     dragging = false
                 }
             }
@@ -198,17 +393,9 @@ class CharacterOverlay(
         }
 
         private fun moveTo(nx: Int, ny: Int) {
-            x = nx
-            y = ny
-            val v = view ?: return
-            val p = params ?: return
-            p.x = nx
-            p.y = ny
-            try {
-                service.getSystemService(WindowManager::class.java)?.updateViewLayout(v, p)
-            } catch (e: RuntimeException) {
-                Log.w(ShortsDetectionService.TAG, "Lv.4 캐릭터 이동 실패: ${e.javaClass.simpleName}")
-            }
+            b.x = nx
+            b.y = ny
+            moveBlockingWindow(nx, ny)
         }
     }
 
@@ -285,8 +472,8 @@ class CharacterOverlay(
 
     /** 바로 지운다. 개입이 닫힐 때 부른다. */
     fun dismiss() {
-        shake?.cancel()
-        shake = null
+        blocking?.stop()
+        blocking = null
         val v = view ?: return
         view = null
         params = null
@@ -343,8 +530,28 @@ class CharacterOverlay(
         const val OVERSHOOT_ROOM = 0.06f
         const val FALLBACK_STATUS_BAR_DP = 24
 
-        /** Lv.4 흔들림(최대 약 14도)이 창 밖으로 잘리지 않게 두는 안쪽 여백 비율 */
-        const val SHAKE_ROOM = 0.12f
+        /** Lv.4 움직임(흔들림 최대 약 14도, 통통 튀기)이 창 밖으로 잘리지 않게 두는 안쪽 여백 비율 */
+        const val MOTION_ROOM = 0.12f
         const val SHAKE_MS = 360L
+        const val BOUNCE_MS = 420L
+        const val STOMP_MS = 240L
+        const val LOOK_BACK_MS = 700L
+
+        /** 다정이: 손 흔들듯 천천히 기운다 */
+        const val WAVE_DEGREES = 5f
+        const val WAVE_MS = 1_600L
+
+        /** 수다쟁이: 날갯짓하듯 빠르게 흔들린다 */
+        const val FLUTTER_DEGREES = 8f
+        const val FLUTTER_MS = 420L
+
+        /** 터덜이: 화면 끝에서 끝까지 걷는 시간과, 걸으며 기우는 각도·주기 */
+        const val WALK_CROSS_MS = 7_000L
+        const val WALK_DEGREES = 3f
+        const val WALK_BOB_MS = 900L
+        const val NS_PER_MS = 1_000_000L
+
+        /** 프레임이 멈췄다 돌아왔을 때 한 번에 건너뛰지 않게 한 프레임의 시간을 자른다 */
+        const val MAX_FRAME_MS = 100L
     }
 }

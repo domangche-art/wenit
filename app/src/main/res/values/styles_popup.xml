@@ -55,6 +55,22 @@
         <item name="android:windowExitAnimation">@anim/character_pop_out</item>
     </style>
 
+    <!-- 16단계: 캐릭터별 등장. 퇴장은 위와 같다 -->
+    <style name="CharacterLv4FlyInWindowAnimation">
+        <item name="android:windowEnterAnimation">@anim/character_fly_in</item>
+        <item name="android:windowExitAnimation">@anim/character_pop_out</item>
+    </style>
+
+    <style name="CharacterLv4StandWindowAnimation">
+        <item name="android:windowEnterAnimation">@anim/character_stand_in</item>
+        <item name="android:windowExitAnimation">@anim/character_pop_out</item>
+    </style>
+
+    <style name="CharacterLv4WalkInWindowAnimation">
+        <item name="android:windowEnterAnimation">@anim/character_walk_in</item>
+        <item name="android:windowExitAnimation">@anim/character_pop_out</item>
+    </style>
+
     <style name="CharacterLv4FlingWindowAnimation">
         <item name="android:windowEnterAnimation">@anim/character_drop_in</item>
         <item name="android:windowExitAnimation">@anim/character_fling_out</item>

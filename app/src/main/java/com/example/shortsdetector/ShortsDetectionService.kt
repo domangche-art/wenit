@@ -45,11 +45,14 @@ import com.example.shortsdetector.intervention.AudioPlaybackControls
 import com.example.shortsdetector.intervention.GoalRemaining
 import com.example.shortsdetector.intervention.InterventionCoordinator
 import com.example.shortsdetector.intervention.InterventionCopyInput
+import com.example.shortsdetector.intervention.InterventionPolicyBounds
 import com.example.shortsdetector.intervention.InterventionPopup
 import com.example.shortsdetector.intervention.character.CharacterOverlay
 import com.example.shortsdetector.intervention.InterventionResult
 import com.example.shortsdetector.intervention.BlockingPlaybackGuard
 import com.example.shortsdetector.intervention.LeaveGuard
+import com.example.shortsdetector.intervention.Lv4Preview
+import com.example.shortsdetector.intervention.character.Characters
 import com.example.shortsdetector.intervention.MaxLevelRepeatRule
 import com.example.shortsdetector.intervention.LiveRecordFilter
 import com.example.shortsdetector.intervention.NotificationTaps
@@ -158,6 +161,9 @@ class ShortsDetectionService : AccessibilityService() {
     }
 
     private var leaveCheckScheduled = false
+
+    /** 개발자 화면의 Lv.4 미리보기(16단계)가 떠 있다. 기록·단계·재생에 관여하지 않는다 */
+    private var previewing = false
     private val blockingPlayback = BlockingPlaybackGuard()
 
     /**
@@ -166,15 +172,20 @@ class ShortsDetectionService : AccessibilityService() {
      */
     private val leaveCheck = Runnable {
         leaveCheckScheduled = false
-        if (!popup.isBlockingCharacter) return@Runnable
+        if (!popup.isBlockingCharacter) {
+            previewing = false
+            return@Runnable
+        }
         try {
             val pkg = activeWindowPackage()
-            if (LeaveGuard.closeOnQuickCheck(true, pkg, engine.isTarget(pkg))) {
-                Log.i(TAG, "[빠른 확인] 대상 앱이 아닌 창: Lv.4 막 닫음")
-                interruptIntervention()
+            // 미리보기는 이 앱 화면 위에 뜬다. 떠나면 닫는 기준이 대상 앱이 아니라 이 앱이다.
+            val inPlace = if (previewing) pkg == packageName else engine.isTarget(pkg)
+            if (LeaveGuard.closeOnQuickCheck(true, pkg, inPlace)) {
+                Log.i(TAG, if (previewing) "[빠른 확인] 앱 화면을 떠남: Lv.4 미리보기 닫음" else "[빠른 확인] 대상 앱이 아닌 창: Lv.4 막 닫음")
+                if (previewing) closePreview() else interruptIntervention()
                 return@Runnable
             }
-            if (blockingPlayback.shouldRepause(true, playbackControls.isPlaying(), pauser.isPausing)) {
+            if (!previewing && blockingPlayback.shouldRepause(true, playbackControls.isPlaying(), pauser.isPausing)) {
                 Log.i(TAG, "[빠른 확인] Lv.4 막 뒤에서 재생이 시작됨: 다시 멈춤")
                 pausePlayback()
             }
@@ -208,6 +219,7 @@ class ShortsDetectionService : AccessibilityService() {
         applyPolicy()
         DetectionStatus.onConnected()
         NotificationTaps.listener = ::onNotificationTapped
+        Lv4Preview.handler = ::previewLv4
         BadgeNotifier.ensureChannel(this)
         AllowanceNotifier.ensureChannel(this)
         updateRewards("연결")
@@ -393,6 +405,7 @@ class ShortsDetectionService : AccessibilityService() {
 
     private fun releasePlaybackControl() {
         NotificationTaps.listener = null
+        Lv4Preview.handler = null
         pauseHandler.removeCallbacksAndMessages(null)
         pauser.release()
     }
@@ -558,6 +571,43 @@ class ShortsDetectionService : AccessibilityService() {
         }
     }
 
+    /**
+     * 개발자 화면에서 고른 캐릭터의 Lv.4 를 바로 띄운다(16단계, 시연·디자인 확인용). 쇼츠를 보고 있지 않아도 된다.
+     * 실제 개입이 떠 있으면 띄우지 않는다. 기록하지 않고, 단계·재생·시청시간을 바꾸지 않는다.
+     */
+    private fun previewLv4(characterId: String): Boolean {
+        if (popup.isShowing) return false
+        return try {
+            val level = InterventionPolicyBounds.MAX_LEVEL
+            val copy = copyProvider.copyFor(InterventionCopyInput(level, PREVIEW_WATCH_MS, null))
+            val shown = popup.show(level, copy, PREVIEW_WATCH_MS, previewListener, characterOverride = Characters.byId(characterId))
+            previewing = shown
+            if (shown) scheduleLeaveCheck()
+            Log.i(TAG, "Lv.4 미리보기: ${Characters.byId(characterId).id} ${if (shown) "표시" else "실패"}")
+            shown
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Lv.4 미리보기 실패: ${e.javaClass.simpleName}")
+            false
+        }
+    }
+
+    private fun closePreview() {
+        previewing = false
+        popup.dismiss()
+    }
+
+    /** 미리보기의 반응은 어디에도 남기지 않는다. "그만 볼게" 도 화면을 옮기지 않고 닫기만 한다. */
+    private val previewListener = object : InterventionPopup.Listener {
+        override fun onReasonChosen(reason: InterventionUserReason) = Unit
+        override fun onResponse(outcome: InterventionOutcome, dismissal: CharacterDismissal?) {
+            previewing = false
+        }
+        override fun onBreathingStarted() = Unit
+        override fun onBreathingFinished() = Unit
+        override fun onTimedOut() = closePreview()
+        override fun beforeLeaving(proceed: () -> Unit) = closePreview()
+    }
+
     private fun scheduleLeaveCheck() {
         if (popup.isBlockingCharacter && !leaveCheckScheduled) {
             handler.postDelayed(leaveCheck, LeaveGuard.FAST_CHECK_MS)
@@ -677,7 +727,9 @@ class ShortsDetectionService : AccessibilityService() {
         }
         if (output.exitSignalStarted || output.cancelNotification) resumeHint.dismiss()
         // 종료 판정(grace)을 기다리지 않고 오버레이만 먼저 닫는다. 알림은 세션이 끝날 때 지운다.
-        if (output.exitSignalStarted && popup.isShowing) {
+        if (previewing) {
+            // 미리보기는 감지 상태와 무관하다. 닫는 것은 빠른 확인이 맡는다
+        } else if (output.exitSignalStarted && popup.isShowing) {
             Log.i(TAG, "[$source] 이탈 신호: 개입 오버레이 닫음")
             interruptIntervention()
         } else if (LeaveGuard.closeBlocking(popup.isBlockingCharacter, output.observation.window)) {
@@ -838,6 +890,7 @@ class ShortsDetectionService : AccessibilityService() {
         allowanceUsedUp: Boolean = false
     ) {
         resumeHint.dismiss()
+        if (previewing) closePreview()
         if (refreshUnansweredNotification(session, pkg, watchMs, atMs, source)) return
         // 알림으로 개입 중이면 답 없는 앞선 개입이 남아 있다. 먼저 끝내야 단계가 그 결과를 반영한다.
         coordinator?.let { c -> guarded { onFinished(c.abandon()) } }
@@ -869,7 +922,8 @@ class ShortsDetectionService : AccessibilityService() {
             }
             it.onIntervention(
                 session, method, watchMs, engine.watchThresholdMs,
-                level = level, isDemo = resolved.demoMode, id = interventionId
+                level = level, isDemo = resolved.demoMode, id = interventionId,
+                characterId = DetectionPreferences.selectedCharacter(this).id
             )
             if (shown) coordinator?.begin(interventionId, session, level, viaNotification = notified)
         }
@@ -975,5 +1029,8 @@ class ShortsDetectionService : AccessibilityService() {
 
         private const val SOURCE_EVENT = "이벤트"
         private const val SOURCE_TIMER = "타이머"
+
+        /** 미리보기 문구에 쓰는 시청시간(말풍선의 {분} = 7) */
+        private const val PREVIEW_WATCH_MS = 7 * 60_000L
     }
 }

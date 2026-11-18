@@ -53,6 +53,7 @@ import com.example.shortsdetector.data.usage.InterventionRecord
 import com.example.shortsdetector.data.usage.PolicyChangeRecord
 import com.example.shortsdetector.data.usage.SessionRecord
 import com.example.shortsdetector.data.usage.UsageDatabase
+import com.example.shortsdetector.intervention.Lv4Preview
 import com.example.shortsdetector.intervention.InterventionCoordinator
 import com.example.shortsdetector.intervention.InterventionPolicy
 import com.example.shortsdetector.intervention.ResolvedPolicy
@@ -105,6 +106,13 @@ interface AppRepository {
     fun setPopupEnabled(enabled: Boolean)
     fun isCharacterEnabled(): Boolean
     fun setCharacterEnabled(enabled: Boolean)
+
+    /** 고른 캐릭터 id(16단계). 고른 적이 없으면 기본 캐릭터 */
+    fun selectedCharacterId(): String
+    fun setSelectedCharacter(id: String)
+
+    /** 개발자 화면: 그 캐릭터의 Lv.4 를 바로 띄운다. 접근성 서비스가 꺼져 있거나 개입이 떠 있으면 false. 메인 스레드에서 부른다 */
+    fun previewLv4(characterId: String): Boolean
     fun isYouTubeEnabled(): Boolean
     fun setYouTubeEnabled(enabled: Boolean)
     fun isInstagramEnabled(): Boolean
@@ -266,6 +274,12 @@ class AndroidAppRepository(context: Context) : AppRepository {
 
     override fun setCharacterEnabled(enabled: Boolean) = DetectionPreferences.setCharacterEnabled(app, enabled)
 
+    override fun selectedCharacterId() = DetectionPreferences.selectedCharacter(app).id
+
+    override fun setSelectedCharacter(id: String) = DetectionPreferences.setSelectedCharacterId(app, id)
+
+    override fun previewLv4(characterId: String) = Lv4Preview.show(characterId)
+
     override fun isYouTubeEnabled() = DetectionPreferences.isYouTubeEnabled(app)
 
     override fun setYouTubeEnabled(enabled: Boolean) = DetectionPreferences.setYouTubeEnabled(app, enabled)
@@ -335,6 +349,7 @@ class AndroidAppRepository(context: Context) : AppRepository {
         resetForDemo()
         GoalPreferences.clear(app)
         UserProfilePreferences.clear(app)
+        DetectionPreferences.clearSelectedCharacter(app)
     }
 
     override fun insertSeed(scenario: DemoSeedData.Scenario): Int {

@@ -71,7 +71,9 @@ class SessionRecorder(
         thresholdMs: Long,
         level: Int? = null,
         isDemo: Boolean = false,
-        id: String = newId()
+        id: String = newId(),
+        /** 개입 시점에 고른 캐릭터 id(16단계). 모르면 null */
+        characterId: String? = null
     ): String {
         store.insertIntervention(
             InterventionRecord(
@@ -82,7 +84,8 @@ class SessionRecorder(
                 watchMs = watchMs,
                 thresholdMs = thresholdMs,
                 level = level,
-                isDemo = isDemo
+                isDemo = isDemo,
+                characterId = characterId
             )
         )
         return id

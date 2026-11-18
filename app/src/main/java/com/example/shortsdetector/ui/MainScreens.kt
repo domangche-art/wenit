@@ -44,6 +44,7 @@ import com.example.shortsdetector.data.stats.WeekStats
 import com.example.shortsdetector.data.usage.DemoSeedData
 import com.example.shortsdetector.intervention.DemoMode
 import com.example.shortsdetector.intervention.InterventionLevels
+import com.example.shortsdetector.intervention.character.Characters
 import com.example.shortsdetector.ui.theme.WenitTokens
 import java.time.Instant
 import java.time.ZoneId
@@ -77,7 +78,7 @@ fun HomeScreen(vm: HomeViewModel, stoppedAtMs: Long?, onStoppedShown: () -> Unit
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(WenitTokens.SpaceM)) {
-            CharacterImage()
+            CharacterImage(s.characterId)
             androidx.compose.foundation.layout.Column {
                 Caption(stringResource(if (s.permissions.detecting) R.string.home_detecting else R.string.home_paused))
                 Caption(stringResource(R.string.home_today))
@@ -260,7 +261,13 @@ private fun dayShortLabel(d: java.time.DayOfWeek) = when (d) {
 // --- h. 설정 ---
 
 @Composable
-fun SettingsScreen(vm: SettingsViewModel, onAddGoal: () -> Unit, onRecommend: () -> Unit, onDeveloper: () -> Unit) {
+fun SettingsScreen(
+    vm: SettingsViewModel,
+    onAddGoal: () -> Unit,
+    onRecommend: () -> Unit,
+    onDeveloper: () -> Unit,
+    onChangeCharacter: () -> Unit
+) {
     val s by vm.state.collectAsState()
     var confirmDelete by remember { mutableStateOf(false) }
     OnResume(vm::refresh)
@@ -294,6 +301,14 @@ fun SettingsScreen(vm: SettingsViewModel, onAddGoal: () -> Unit, onRecommend: ()
         InterventionLevels.maxLevelChoices.forEach { level ->
             val label = level.maxLevelLabel ?: return@forEach
             SingleChoiceRow(stringResource(label), s.maxLevel == level.number) { vm.setMaxLevel(level.number) }
+        }
+
+        SectionTitle(stringResource(R.string.settings_character))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                Characters.byId(s.characterId).name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f)
+            )
+            TextButton(onChangeCharacter) { Text(stringResource(R.string.settings_character_change)) }
         }
 
         SectionTitle(stringResource(R.string.settings_allowance))
@@ -402,6 +417,13 @@ fun DeveloperScreen(
         SecondaryButton(stringResource(R.string.button_seed_a), enabled = !s.working) { vm.seed(DemoSeedData.Scenario.LATE_NIGHT_SKIPPER) }
         SecondaryButton(stringResource(R.string.button_seed_b), enabled = !s.working) { vm.seed(DemoSeedData.Scenario.EASY_STOPPER) }
         s.seeded?.let { Caption(stringResource(R.string.dev_seed_done, it)) }
+
+        SectionTitle(stringResource(R.string.dev_lv4_preview))
+        Caption(stringResource(R.string.dev_lv4_preview_body))
+        Characters.ALL.forEach { c ->
+            SecondaryButton(stringResource(R.string.dev_lv4_preview_button, c.name)) { vm.previewLv4(c.id) }
+        }
+        if (s.previewFailed) Caption(stringResource(R.string.dev_lv4_preview_failed), MaterialTheme.colorScheme.error)
 
         SectionTitle(stringResource(R.string.dev_rewards))
         SecondaryButton(stringResource(R.string.dev_celebrate_preview)) {

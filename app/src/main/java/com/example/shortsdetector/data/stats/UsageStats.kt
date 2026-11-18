@@ -16,6 +16,7 @@ import com.example.shortsdetector.data.usage.InterventionRecord
 import com.example.shortsdetector.data.usage.InterventionReturn
 import com.example.shortsdetector.data.usage.InterventionUserReason
 import com.example.shortsdetector.data.usage.SessionRecord
+import com.example.shortsdetector.intervention.character.Characters
 import com.example.shortsdetector.intervention.InterventionKind
 import com.example.shortsdetector.intervention.InterventionLevels
 import com.example.shortsdetector.intervention.InterventionPolicyBounds
@@ -101,6 +102,14 @@ data class RecentUsageStats(
 /** 단계별 반응 비율. 표본이 적으면 비율은 null 이다. */
 data class LevelRate(val level: Int, val samples: Int, val stopRate: Double?, val continueRate: Double?)
 
+/**
+ * 캐릭터별 Lv.4 반응(16단계). 표본은 답한 기록(멈춤·계속 보기·무응답)만 세고, 표본이 적으면 비율은 null 이다.
+ * [characterId] 는 캐릭터 목록의 고정 id 다(사용자 정보 아님).
+ */
+data class CharacterLv4Rate(val characterId: String, val samples: Int, val stopRate: Double?) {
+    val enough: Boolean get() = samples >= InterventionBehavior.MIN_SAMPLES
+}
+
 /** 스스로 멈춘 뒤의 복귀 집계. 표본은 결과가 정해진 기록만 센다. 표본이 적으면 비율과 중간값은 null 이다. */
 data class ReturnStats(
     val samples: Int,
@@ -129,7 +138,9 @@ data class InterventionBehavior(
     /** Lv.2 에서 이유를 고르지 않고 지나간 횟수 */
     val lv2Unanswered: Int,
     val lv2ReasonsBySlot: List<SlotReasons>,
-    val continuedBySlot: List<SlotContinued>
+    val continuedBySlot: List<SlotContinued>,
+    /** 캐릭터별 Lv.4 멈춤률. 캐릭터 목록 순서로 모든 캐릭터가 한 줄씩 있다(기록 없으면 표본 0) */
+    val lv4ByCharacter: List<CharacterLv4Rate> = emptyList()
 ) {
     companion object {
         /** 이보다 적으면 "데이터 부족" 으로 표시한다 */
@@ -423,8 +434,28 @@ object UsageStatsCalculator {
             continuedBySlot = WatchTimeSlot.entries.map { slot ->
                 val inSlot = continued.filter { slotOf(it.occurredAtMs, zone) == slot }
                 SlotContinued(slot, inSlot.size, levels.map { l -> l to inSlot.count { it.level == l } })
-            }
+            },
+            lv4ByCharacter = lv4ByCharacter(delivered)
         )
+    }
+
+    /**
+     * 캐릭터별 Lv.4(캐릭터 방해) 멈춤률. 캐릭터 id 가 없는 기록(DB 버전 10 이전)과 모르는 id 는 뺀다.
+     * 단계별 비율과 같은 규칙: 답한 기록만 표본, [InterventionBehavior.MIN_SAMPLES] 미만이면 비율 없음.
+     */
+    private fun lv4ByCharacter(delivered: List<InterventionRecord>): List<CharacterLv4Rate> {
+        val blocks = delivered.filter { r ->
+            r.outcome in REACTED && r.level?.let { InterventionLevels.of(it).kind == InterventionKind.CHARACTER_BLOCK } == true
+        }
+        return Characters.ALL.map { c ->
+            val mine = blocks.filter { it.characterId == c.id }
+            val n = mine.size
+            CharacterLv4Rate(
+                c.id, n,
+                (mine.count { it.outcome == InterventionOutcome.STOPPED }.toDouble() / n)
+                    .takeIf { n >= InterventionBehavior.MIN_SAMPLES }
+            )
+        }
     }
 
     private fun isQuestion(r: InterventionRecord) =

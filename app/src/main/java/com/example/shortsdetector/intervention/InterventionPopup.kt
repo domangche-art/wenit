@@ -19,6 +19,8 @@ import com.example.shortsdetector.data.usage.CharacterDismissal
 import com.example.shortsdetector.data.usage.InterventionOutcome
 import com.example.shortsdetector.data.usage.InterventionUserReason
 import com.example.shortsdetector.intervention.character.Box
+import com.example.shortsdetector.intervention.character.CharacterArt
+import com.example.shortsdetector.intervention.character.CharacterLineRules
 import com.example.shortsdetector.intervention.character.CharacterAnchor
 import com.example.shortsdetector.intervention.character.CharacterOverlay
 import com.example.shortsdetector.intervention.character.CharacterSpec
@@ -49,7 +51,12 @@ class InterventionPopup(
     private val service: AccessibilityService,
     private val character: CharacterOverlay? = null,
     /** Lv.4 에 띄울 캐릭터(사용자가 고른 캐릭터, 15단계). 띄울 때마다 읽는다. */
-    private val characterSpec: () -> CharacterSpec = { Characters.DEFAULT }
+    private val characterSpec: () -> CharacterSpec = { Characters.DEFAULT },
+    /**
+     * 고정 대사에 더할 대사(16단계). 나중에 AI 가 캐릭터 말투로 만든 대사를 넣는 자리다. 지금은 늘 비어 있다.
+     * [CharacterLineRules.isAllowed] 를 통과한 것만 쓴다.
+     */
+    private val extraLines: (CharacterSpec) -> List<String> = { emptyList() }
 ) {
 
     interface Listener {
@@ -134,6 +141,15 @@ class InterventionPopup(
     /** 이번 Lv.4 에 띄운 캐릭터 */
     private var blockSpec: CharacterSpec? = null
 
+    /** 이번 Lv.4 에만 쓸 캐릭터(개발자 미리보기). null 이면 고른 캐릭터 */
+    private var specOverride: CharacterSpec? = null
+
+    /** 이번 Lv.4 말풍선: 대사 목록, 지금까지 보여 준 순서, 자리의 처음 크기, 개입 시점 시청시간 */
+    private var blockLines: List<String> = emptyList()
+    private var lineIndex = 0
+    private var slotBase: Pair<Int, Int>? = null
+    private var blockWatchMs = 0L
+
     /** 이번 개입에서 허용 시간 버튼을 보여 줄지(남은 시간). 0 이면 숨긴다. */
     private var allowanceLeftMs = 0L
 
@@ -147,9 +163,15 @@ class InterventionPopup(
      * @param allowanceLeftMs 오늘 남은 허용 시간(14단계). 0 보다 크면 "허용 시간으로 보기 (남은 N분)" 버튼을 기존 버튼 아래에 둔다.
      * @return 실제로 창을 붙였으면 true
      */
-    fun show(level: Int, copy: InterventionCopy, watchMs: Long, listener: Listener, allowanceLeftMs: Long = 0L): Boolean {
+    fun show(
+        level: Int, copy: InterventionCopy, watchMs: Long, listener: Listener, allowanceLeftMs: Long = 0L,
+        /** Lv.4 에 고른 캐릭터 대신 띄울 캐릭터(개발자 미리보기, 16단계) */
+        characterOverride: CharacterSpec? = null
+    ): Boolean {
         dismiss()
         this.allowanceLeftMs = allowanceLeftMs
+        specOverride = characterOverride
+        blockWatchMs = watchMs
         val wm = service.getSystemService(WindowManager::class.java) ?: return false
         return try {
             val spec = InterventionLevels.of(level)
@@ -274,17 +296,24 @@ class InterventionPopup(
      * 막 창도 강제 다크를 끈다(말풍선·글자가 밝은 고정색이고, 서비스 Context 의 테마는 앱 테마가 아니다. 11단계 참고).
      */
     private fun bindCharacterBlock(v: View) {
-        val spec = try {
+        val spec = specOverride ?: try {
             characterSpec()
         } catch (e: RuntimeException) {
             Characters.DEFAULT
         }
         blockSpec = spec
+        blockLines = try {
+            CharacterLineRules.merged(spec, extraLines(spec))
+        } catch (e: RuntimeException) {
+            spec.lines
+        }
+        lineIndex = 0
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) v.isForceDarkAllowed = false
         val metrics = service.resources.displayMetrics
-        val art = service.getDrawable(spec.lv4ArtOrBase)
+        val art = service.getDrawable(CharacterArt.lv4(service, spec))
         val size = art?.let { Lv4CharacterRules.size(metrics.widthPixels, metrics.heightPixels, it.intrinsicWidth, it.intrinsicHeight) }
         val slot = v.findViewById<View>(R.id.lv4CharacterSlot)
+        slotBase = size
         if (size != null) {
             slot.layoutParams = slot.layoutParams.apply {
                 width = size.first
@@ -293,7 +322,7 @@ class InterventionPopup(
         }
         v.findViewById<TextView>(R.id.lv4TapsLeft).text =
             service.getString(R.string.popup_lv4_taps_left, Lv4CharacterRules.tapsNeeded(spec.lv4))
-        showLine(v, spec, 0)
+        showLine(v)
     }
 
     /** 막의 배치가 끝난 뒤 캐릭터 자리에 Lv.4 캐릭터를 띄운다. 띄우지 못하면 캐릭터 없이 끝낼 수 있게 "계속 보기" 버튼을 보인다. */
@@ -306,14 +335,16 @@ class InterventionPopup(
                 if (view !== v) return
                 if (tapsLeft > 0) {
                     v.findViewById<TextView>(R.id.lv4TapsLeft).text = service.getString(R.string.popup_lv4_taps_left, tapsLeft)
+                    growSlot(v, spec, taps)
                 }
-                showLine(v, spec, taps)
+                nextLine(v)
             }
 
             override fun onCleared(how: CharacterDismissal) {
                 if (view === v) host.answer(InterventionOutcome.CONTINUED, how)
             }
         })
+        if (shown) scheduleLines(v, spec)
         if (!shown) {
             Log.w(ShortsDetectionService.TAG, "Lv.4 캐릭터 없이 막만 표시: 계속 보기 버튼으로 대신함")
             v.findViewById<View>(R.id.lv4TapsLeft).visibility = View.GONE
@@ -322,12 +353,48 @@ class InterventionPopup(
         }
     }
 
-    /** 말풍선: 대사가 있으면 [index] 번째(돌려 씀)를 보이고, 없으면 숨긴다. */
-    private fun showLine(v: View, spec: CharacterSpec, index: Int) {
+    /** 말풍선: 대사가 있으면 지금 순서의 대사(돌려 씀, `{분}` 은 시청 시간)를 보이고, 없으면 숨긴다. */
+    private fun showLine(v: View) {
         val bubble = v.findViewById<TextView>(R.id.lv4Bubble)
-        val line = Lv4CharacterRules.lineAt(spec.lines, index)
+        val line = Lv4CharacterRules.lineAt(blockLines, lineIndex)?.let { CharacterLineRules.fill(it, blockWatchMs) }
         bubble.text = line.orEmpty()
         bubble.visibility = if (line == null) View.GONE else View.VISIBLE
+    }
+
+    private fun nextLine(v: View) {
+        lineIndex++
+        showLine(v)
+    }
+
+    /** 탭하지 않아도 말풍선이 바뀌는 캐릭터(수다쟁이): [Lv4Behavior.lineIntervalMs] 마다 다음 대사. 막이 닫히면 멈춘다. */
+    private fun scheduleLines(v: View, spec: CharacterSpec) {
+        val every = spec.lv4.lineIntervalMs ?: return
+        if (every <= 0L || blockLines.size < 2) return
+        handler.postDelayed(object : Runnable {
+            override fun run() {
+                if (view !== v) return
+                nextLine(v)
+                handler.postDelayed(this, every)
+            }
+        }, every)
+    }
+
+    /**
+     * 탭할수록 커지는 캐릭터(표독이): 막 안의 캐릭터 자리를 키우고, 배치가 끝나면 캐릭터 창을 새 자리에 맞춘다.
+     * 자리를 키우므로 문구·버튼이 캐릭터에 가려지지 않고 밀려난다.
+     */
+    private fun growSlot(v: View, spec: CharacterSpec, taps: Int) {
+        val base = slotBase ?: return
+        val scale = Lv4CharacterRules.scaleAfter(spec.lv4, taps)
+        val slot = v.findViewById<View>(R.id.lv4CharacterSlot)
+        val w = (base.first * scale).toInt()
+        val h = (base.second * scale).toInt()
+        if (slot.layoutParams.width == w && slot.layoutParams.height == h) return
+        slot.layoutParams = slot.layoutParams.apply {
+            width = w
+            height = h
+        }
+        v.post { if (view === v) character?.resizeBlocking(boxOnScreen(slot)) }
     }
 
     /** 개입 창의 배치가 끝난 뒤 캐릭터를 띄우고, 배치가 바뀌면(Lv.3 버튼 등장) 자리를 옮긴다. */
@@ -412,6 +479,9 @@ class InterventionPopup(
         handler.removeCallbacksAndMessages(null)
         kind = null
         blockSpec = null
+        specOverride = null
+        blockLines = emptyList()
+        slotBase = null
         val v = view ?: return
         view = null
         try {

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  16단계 Lv.4 표독이 등장(창 애니메이션). 제자리에 쿵 하고 선다: 조금 크게 시작해 제 크기로(0.25초). 발밑을 기준으로 줄어든다.
+  투명에서 시작하지 않는다.
+-->
+<scale xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="250"
+    android:fromXScale="1.25"
+    android:fromYScale="1.25"
+    android:interpolator="@android:anim/overshoot_interpolator"
+    android:pivotX="50%"
+    android:pivotY="100%"
+    android:toXScale="1.0"
+    android:toYScale="1.0" />

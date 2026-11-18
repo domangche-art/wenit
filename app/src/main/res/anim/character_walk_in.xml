@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  16단계 Lv.4 터덜이 등장(창 애니메이션). 화면 오른쪽 밖에서 자기 너비만큼 걸어 들어온다(0.7초). 그 뒤 걷기는 창을 옮겨서 한다.
+  투명에서 시작하지 않는다.
+-->
+<translate xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="700"
+    android:fromXDelta="100%"
+    android:interpolator="@android:anim/linear_interpolator"
+    android:toXDelta="0" />

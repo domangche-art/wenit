@@ -237,6 +237,17 @@
     <string name="settings_add_goal">목표 직접 추가</string>
     <string name="settings_recommend_goal">목표 추천 받기</string>
     <string name="settings_max_level">최대 개입 단계</string>
+    <string name="settings_character">함께하는 캐릭터</string>
+    <string name="settings_character_change">캐릭터 바꾸기</string>
+    <string name="character_pick_title">함께할 친구 고르기</string>
+    <string name="character_change_title">캐릭터 바꾸기</string>
+    <string name="character_pick_body">너무 오래 볼 때 나타나 말을 걸어 줄 친구예요. 눌러서 만나 보고, 설정에서 언제든 바꿀 수 있어요.</string>
+    <string name="character_selected">함께하는 중</string>
+    <string name="character_not_selected">눌러서 고르기</string>
+    <string name="dev_lv4_preview">Lv.4 미리보기(캐릭터 선택)</string>
+    <string name="dev_lv4_preview_body">쇼츠를 보지 않아도 이 화면 위에 Lv.4 를 바로 띄워요. 기록하지 않아요.</string>
+    <string name="dev_lv4_preview_button">%1$s Lv.4 띄우기</string>
+    <string name="dev_lv4_preview_failed">띄우지 못했어요. 접근성 서비스가 켜져 있는지, 다른 개입이 떠 있지 않은지 확인해 주세요.</string>
     <string name="settings_max_level_1">Lv.1 까지 (가벼운 알림만)</string>
     <string name="settings_max_level_2">Lv.2 까지 (질문까지만)</string>
     <string name="settings_max_level_3">Lv.3 까지 (숨 고르기 포함)</string>

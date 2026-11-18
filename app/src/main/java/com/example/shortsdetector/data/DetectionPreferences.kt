@@ -60,8 +60,8 @@ object DetectionPreferences {
         p.edit { putBoolean(KEY_CHARACTER_ENABLED, enabled) }
 
     /**
-     * 사용자가 고른 캐릭터 id(15단계). 고르는 화면은 아직 없어 기본 캐릭터다.
-     * 모르는 id 는 [Characters.byId] 가 기본 캐릭터로 읽는다.
+     * 사용자가 고른 캐릭터(15단계, 고르는 화면은 16단계). 고른 적이 없으면(16단계 전에 온보딩을 마친 기존 사용자 포함)
+     * 기본 캐릭터(다정이)다. 모르는 id 는 [Characters.byId] 가 기본 캐릭터로 읽는다.
      */
     fun selectedCharacter(context: Context): CharacterSpec = Characters.byId(selectedCharacterId(prefs(context)))
 
@@ -69,7 +69,15 @@ object DetectionPreferences {
 
     internal fun selectedCharacterId(p: SharedPreferences): String? = p.getString(KEY_SELECTED_CHARACTER, null)
 
-    internal fun setSelectedCharacterId(p: SharedPreferences, id: String) = p.edit { putString(KEY_SELECTED_CHARACTER, id) }
+    /** 목록에 없는 id 는 저장하지 않는다 */
+    internal fun setSelectedCharacterId(p: SharedPreferences, id: String) {
+        if (Characters.isKnown(id)) p.edit { putString(KEY_SELECTED_CHARACTER, id) }
+    }
+
+    /** 첫 실행 화면으로 돌아갈 때: 고른 캐릭터를 지워 기본 캐릭터에서 다시 고르게 한다 */
+    fun clearSelectedCharacter(context: Context) = clearSelectedCharacter(prefs(context))
+
+    internal fun clearSelectedCharacter(p: SharedPreferences) = p.edit { remove(KEY_SELECTED_CHARACTER) }
 
     fun enabledPackages(context: Context): Set<String> = buildSet {
         if (isYouTubeEnabled(context)) add(YouTubeViewIds.PACKAGE)

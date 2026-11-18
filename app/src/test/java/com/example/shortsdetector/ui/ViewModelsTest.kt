@@ -36,6 +36,7 @@ import com.example.shortsdetector.data.usage.SessionStatus
 import com.example.shortsdetector.intervention.InterventionCoordinator
 import com.example.shortsdetector.intervention.InterventionPolicy
 import com.example.shortsdetector.intervention.ResolvedPolicy
+import com.example.shortsdetector.intervention.character.Characters
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -142,6 +143,12 @@ class ViewModelsTest {
         override fun setPopupEnabled(enabled: Boolean) = Unit
         override fun isCharacterEnabled() = characterOn
         override fun setCharacterEnabled(enabled: Boolean) { characterOn = enabled }
+        var characterId: String? = null
+        var previewOk = true
+        val previews = ArrayList<String>()
+        override fun selectedCharacterId() = Characters.byId(characterId).id
+        override fun setSelectedCharacter(id: String) { characterId = id }
+        override fun previewLv4(characterId: String): Boolean { previews += characterId; return previewOk }
         override fun isYouTubeEnabled() = true
         override fun setYouTubeEnabled(enabled: Boolean) = Unit
         override fun isInstagramEnabled() = false

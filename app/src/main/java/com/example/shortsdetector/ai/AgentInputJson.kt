@@ -186,6 +186,12 @@ object AgentInputJson {
             }
         )
         .put(
+            "lv4ByCharacter",
+            JSONObject().apply {
+                b.lv4ByCharacter.forEach { c -> put(c.characterId, sampled(c.samples).putRate("stopRate", c.stopRate)) }
+            }
+        )
+        .put(
             "continuedByTimeSlot",
             JSONObject().apply {
                 b.continuedBySlot.forEach { s ->

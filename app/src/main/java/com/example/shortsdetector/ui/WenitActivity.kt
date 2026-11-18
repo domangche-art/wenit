@@ -113,6 +113,8 @@ private object Routes {
     const val SURVEY = "survey"
     const val CONSENT = "consent"
     const val PERMISSIONS = "permissions"
+    const val CHARACTER_PICK = "character_pick"
+    const val CHARACTER_CHANGE = "character_change"
     const val GOAL_PICK = "goal_pick"
     const val CUSTOM_GOAL = "custom_goal"
     const val HOME = "home"
@@ -200,7 +202,14 @@ private fun WenitApp(
                     ConsentScreen(viewModel(factory = factory)) { nav.navigate(Routes.PERMISSIONS) }
                 }
                 composable(Routes.PERMISSIONS) {
-                    PermissionsScreen(viewModel(factory = factory)) { nav.navigate(Routes.GOAL_PICK) }
+                    PermissionsScreen(viewModel(factory = factory)) { nav.navigate(Routes.CHARACTER_PICK) }
+                }
+                // 16단계: 함께할 친구 고르기(온보딩) / 캐릭터 바꾸기(설정). 같은 화면이다
+                composable(Routes.CHARACTER_PICK) {
+                    CharacterPickScreen(viewModel(factory = factory), onboarding = true) { nav.navigate(Routes.GOAL_PICK) }
+                }
+                composable(Routes.CHARACTER_CHANGE) {
+                    CharacterPickScreen(viewModel(factory = factory), onboarding = false) { nav.popBackStack() }
                 }
                 composable(Routes.GOAL_PICK) {
                     GoalPickScreen(
@@ -227,7 +236,8 @@ private fun WenitApp(
                         viewModel(factory = factory),
                         onAddGoal = { nav.navigate(Routes.CUSTOM_GOAL) },
                         onRecommend = { nav.navigate(Routes.GOAL_PICK) },
-                        onDeveloper = { nav.navigate(Routes.DEVELOPER) }
+                        onDeveloper = { nav.navigate(Routes.DEVELOPER) },
+                        onChangeCharacter = { nav.navigate(Routes.CHARACTER_CHANGE) }
                     )
                 }
                 composable(Routes.DEVELOPER) {
@@ -247,5 +257,5 @@ private fun WenitApp(
         }
     }
     val celebrate = rewards.celebrate
-    if (celebrate != null && inMain) CelebrationDialog(celebrate, rewardsVm::celebrated)
+    if (celebrate != null && inMain) CelebrationDialog(celebrate, rewards.characterId, rewardsVm::celebrated)
 }

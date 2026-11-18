@@ -1,5 +1,6 @@
 package com.example.shortsdetector.data.usage
 
+import com.example.shortsdetector.intervention.character.Characters
 import com.example.shortsdetector.data.goal.Goal
 import com.example.shortsdetector.data.goal.GoalRules
 import com.example.shortsdetector.data.goal.GoalType
@@ -67,6 +68,12 @@ object DemoSeedData {
             GoalRules.userGoal(GoalType.DAILY_TOTAL, 20),
             GoalRules.userGoal(GoalType.SELF_STOPS, 1)
         )
+    }
+
+    /** 시나리오의 사용자가 고른 캐릭터(16단계): A 는 표독이, B 는 다정이. 사용자의 실제 선택은 바꾸지 않는다. */
+    fun seedCharacterId(scenario: Scenario): String = when (scenario) {
+        Scenario.LATE_NIGHT_SKIPPER -> "fierce"
+        Scenario.EASY_STOPPER -> Characters.DEFAULT_ID
     }
 
     /** 예시 아낀 시간 기준값(하루 45분) */
@@ -196,7 +203,8 @@ object DemoSeedData {
                     returnStatus = r.returnStatus,
                     shortsReturnMs = r.backMinutes?.times(MS_PER_MINUTE),
                     appReturnMs = r.appMinutes?.times(MS_PER_MINUTE),
-                    dismissal = r.dismissal
+                    dismissal = r.dismissal,
+                    characterId = seedCharacterId(scenario)
                 )
             }
         }

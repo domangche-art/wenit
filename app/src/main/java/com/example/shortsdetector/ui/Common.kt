@@ -47,6 +47,7 @@ import com.example.shortsdetector.data.profile.UsualDailyWatch
 import com.example.shortsdetector.data.profile.WatchTimeSlot
 import com.example.shortsdetector.data.usage.InterventionOutcome
 import com.example.shortsdetector.data.usage.PolicyChangeSource
+import com.example.shortsdetector.intervention.character.Characters
 import com.example.shortsdetector.ui.theme.WenitTokens
 import java.time.DayOfWeek
 
@@ -116,12 +117,13 @@ fun SecondaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolea
     }
 }
 
-/** 디자인이 나오면 이 이미지만 바꾼다. */
+/** 고른 캐릭터의 기본 그림(16단계). 홈과 축하 화면에 작게 보여 준다. */
 @Composable
-fun CharacterImage(modifier: Modifier = Modifier) {
+fun CharacterImage(characterId: String, modifier: Modifier = Modifier) {
+    val spec = Characters.byId(characterId)
     Image(
-        painterResource(R.drawable.ic_character_placeholder),
-        contentDescription = stringResource(R.string.popup_character_description),
+        painterResource(spec.baseArt),
+        contentDescription = spec.name,
         modifier = modifier.size(WenitTokens.CharacterSize)
     )
 }

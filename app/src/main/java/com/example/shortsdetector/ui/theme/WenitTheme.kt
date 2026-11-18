@@ -33,6 +33,9 @@ object WenitTokens {
 
     val ButtonHeight = 52.dp
     val CharacterSize = 96.dp
+
+    /** 캐릭터 고르기 카드 안의 그림(16단계) */
+    val CharacterPickSize = 104.dp
     val ChartHeight = 140.dp
     val ChartBarRadius = 6.dp
     val ProgressHeight = 6.dp

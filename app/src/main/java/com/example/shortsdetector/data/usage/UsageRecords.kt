@@ -134,7 +134,12 @@ data class InterventionRecord(
     /** 멈춘 뒤 숏폼 없이 대상 앱을 처음 열기까지 걸린 시간 */
     val appReturnMs: Long? = null,
     /** Lv.4 캐릭터를 치운 방법(DB 버전 10). Lv.4 계속 보기가 아니면 null */
-    val dismissal: CharacterDismissal? = null
+    val dismissal: CharacterDismissal? = null,
+    /**
+     * 개입 시점에 사용자가 고른 캐릭터 id(DB 버전 11, 16단계). 그 전 기록은 null(모름).
+     * 캐릭터 이름·대사가 아니라 고정 id 만 담는다
+     */
+    val characterId: String? = null
 )
 
 /**

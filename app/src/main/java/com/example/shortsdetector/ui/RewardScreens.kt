@@ -353,7 +353,7 @@ private fun BadgeDetailDialog(b: BadgeProgress, onDismiss: () -> Unit) {
  * 앱 화면 안에서만 뜬다(쇼츠를 보는 중에는 앱 화면이 보이지 않으므로 뜨지 않는다).
  */
 @Composable
-fun CelebrationDialog(badge: EarnedBadge, onClose: () -> Unit) {
+fun CelebrationDialog(badge: EarnedBadge, characterId: String, onClose: () -> Unit) {
     val def: BadgeDef = BadgeCatalog.byId(badge.id) ?: run {
         LaunchedEffect(badge) { onClose() }
         return
@@ -377,11 +377,7 @@ fun CelebrationDialog(badge: EarnedBadge, onClose: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(WenitTokens.SpaceM)
             ) {
-                Image(
-                    painterResource(R.drawable.wenit_character),
-                    contentDescription = stringResource(R.string.popup_character_description),
-                    modifier = Modifier.size(WenitTokens.CharacterSize)
-                )
+                CharacterImage(characterId)
                 Text(stringResource(R.string.celebrate_title), style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
                 BadgeMedal(
                     def.id, badge.tier, earned = true, size = WenitTokens.BadgeCelebrateSize,

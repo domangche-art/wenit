@@ -25,6 +25,8 @@ import com.example.shortsdetector.data.rewards.BadgeProgress
 import com.example.shortsdetector.data.rewards.BadgeTotals
 import com.example.shortsdetector.data.rewards.EarnedBadge
 import com.example.shortsdetector.data.rewards.StreakCalculator
+import com.example.shortsdetector.intervention.character.CharacterLineRules
+import com.example.shortsdetector.intervention.character.Characters
 import com.example.shortsdetector.data.usage.DemoSeedData
 import com.example.shortsdetector.data.usage.InterventionMethod
 import com.example.shortsdetector.data.usage.InterventionRecord
@@ -260,7 +262,9 @@ data class HomeState(
     val stoppedAtMs: Long? = null,
     val streak: StreakSummary = StreakSummary(0, 0),
     /** 오늘 남은 허용 시간. 허용 시간이 꺼져 있으면 null(표시 안 함) */
-    val allowanceLeftMs: Long? = null
+    val allowanceLeftMs: Long? = null,
+    /** 고른 캐릭터(16단계). 홈에 작게 보여 준다 */
+    val characterId: String = Characters.DEFAULT_ID
 )
 
 class HomeViewModel(private val repo: AppRepository, private val tasks: TaskRunner) :
@@ -335,7 +339,8 @@ class HomeViewModel(private val repo: AppRepository, private val tasks: TaskRunn
                 repo.firstWeekAverageMs(), repo.profile()?.usualDailyWatch, today.estimatedWatchMs
             ),
             streak = StreakSummary(streak.current, streak.best),
-            allowanceLeftMs = repo.allowanceRemainingMs()
+            allowanceLeftMs = repo.allowanceRemainingMs(),
+            characterId = repo.selectedCharacterId()
         )
     }
 
@@ -436,7 +441,9 @@ data class SettingsState(
     val messages: AgentMessages? = null,
     val deleted: Boolean = false,
     val versionTaps: Int = 0,
-    val openDeveloper: Boolean = false
+    val openDeveloper: Boolean = false,
+    /** 고른 캐릭터(16단계) */
+    val characterId: String = Characters.DEFAULT_ID
 )
 
 class SettingsViewModel(
@@ -452,7 +459,7 @@ class SettingsViewModel(
                 aiConsent = repo.isAiConsentGiven(),
                 agentEnabled = repo.isAgentEnabled(), youtube = repo.isYouTubeEnabled(), instagram = repo.isInstagramEnabled(),
                 demoMode = repo.isDemoMode(), permissions = repo.permissions(), lastResult = repo.lastAgentResult(),
-                messages = repo.agentMessages()
+                messages = repo.agentMessages(), characterId = repo.selectedCharacterId()
             )
         }
         tasks.run(work = { repo.hasSeedData() }) { has -> set { it.copy(hasSeedData = has) } }
@@ -551,7 +558,9 @@ data class DeveloperState(
     val evalRows: Int? = null,
     val resetDone: Boolean = false,
     val restarted: Boolean = false,
-    val badgeNotified: Boolean? = null
+    val badgeNotified: Boolean? = null,
+    /** Lv.4 미리보기를 띄우지 못했다(접근성 서비스 꺼짐, 다른 개입이 떠 있음). 16단계 */
+    val previewFailed: Boolean = false
 )
 
 class DeveloperViewModel(private val repo: AppRepository, private val tasks: TaskRunner) :
@@ -589,6 +598,12 @@ class DeveloperViewModel(private val repo: AppRepository, private val tasks: Tas
         tasks.run(work = { repo.setThreshold(ms) }) { refresh() }
     }
 
+    /** 쇼츠 없이 그 캐릭터의 Lv.4 를 바로 띄운다(시연·디자인 확인용). 기록하지 않는다. */
+    fun previewLv4(characterId: String) {
+        val shown = repo.previewLv4(characterId)
+        set { it.copy(previewFailed = !shown) }
+    }
+
     fun seed(scenario: DemoSeedData.Scenario) = work({ repo.insertSeed(scenario) }) { n -> set { it.copy(seeded = n) } }
 
     fun runGoalEval() = work({ repo.runGoalEval() }) { n -> set { it.copy(evalRows = n) } }
@@ -612,6 +627,41 @@ class DeveloperViewModel(private val repo: AppRepository, private val tasks: Tas
     }
 }
 
+// --- 캐릭터 고르기(16단계) ---
+
+/**
+ * @param speakingId 방금 누른 캐릭터. 그 카드가 통통 튀며 [line] 을 말한다
+ * @param tick 누를 때마다 늘어난다(같은 캐릭터를 다시 눌러도 다시 튀게)
+ */
+data class CharacterPickState(
+    val selectedId: String = Characters.DEFAULT_ID,
+    val speakingId: String? = null,
+    val line: String? = null,
+    val tick: Int = 0
+)
+
+/** 온보딩의 "함께할 친구 고르기" 와 설정의 "캐릭터 바꾸기" 가 같이 쓴다. 누르는 즉시 저장한다. */
+class CharacterPickViewModel(private val repo: AppRepository) : StateViewModel<CharacterPickState>(CharacterPickState()) {
+
+    /** 캐릭터마다 지금까지 누른 횟수: 누를 때마다 다음 대사 */
+    private val presses = HashMap<String, Int>()
+
+    fun refresh() = set { it.copy(selectedId = repo.selectedCharacterId()) }
+
+    fun select(id: String) {
+        if (!Characters.isKnown(id)) return
+        repo.setSelectedCharacter(id)
+        val n = presses[id] ?: 0
+        presses[id] = n + 1
+        set {
+            it.copy(
+                selectedId = repo.selectedCharacterId(), speakingId = id,
+                line = CharacterLineRules.previewLine(Characters.byId(id), n), tick = it.tick + 1
+            )
+        }
+    }
+}
+
 // --- j. 연속 달성·배지(13단계) ---
 
 /**
@@ -621,7 +671,9 @@ class DeveloperViewModel(private val repo: AppRepository, private val tasks: Tas
 data class RewardsState(
     val hasNew: Boolean = false,
     val celebrate: EarnedBadge? = null,
-    val queue: List<EarnedBadge> = emptyList()
+    val queue: List<EarnedBadge> = emptyList(),
+    /** 축하 화면에 나올 캐릭터: 고른 캐릭터(16단계) */
+    val characterId: String = Characters.DEFAULT_ID
 )
 
 class RewardsViewModel(private val repo: AppRepository, private val tasks: TaskRunner) :
@@ -629,6 +681,7 @@ class RewardsViewModel(private val repo: AppRepository, private val tasks: TaskR
 
     /** 앱이 보일 때마다: 끝난 날·배지를 판정하고 축하할 배지를 모은다. 앱 화면이 보이는 동안은 쇼츠를 보는 중이 아니다. */
     fun refresh() {
+        set { it.copy(characterId = repo.selectedCharacterId()) }
         tasks.run(work = {
             repo.updateRewards()
             repo.badges().filterNot { it.isSeed }
@@ -662,7 +715,12 @@ class RewardsViewModel(private val repo: AppRepository, private val tasks: TaskR
     }
 
     /** 개발자 화면: 축하 화면 미리보기. 저장하지 않는 시드 표시 배지라 닫아도 DB 를 바꾸지 않는다. */
-    fun preview(badge: EarnedBadge) = set { it.copy(celebrate = badge.copy(isSeed = true), queue = listOfNotNull(it.celebrate) + it.queue) }
+    fun preview(badge: EarnedBadge) = set {
+        it.copy(
+            celebrate = badge.copy(isSeed = true), queue = listOfNotNull(it.celebrate) + it.queue,
+            characterId = repo.selectedCharacterId()
+        )
+    }
 }
 
 data class ShowcaseState(
@@ -732,6 +790,7 @@ class WenitViewModelFactory(
         RecordsViewModel::class.java -> RecordsViewModel(repo, tasks)
         SettingsViewModel::class.java -> SettingsViewModel(repo, tasks, debugBuild)
         DeveloperViewModel::class.java -> DeveloperViewModel(repo, tasks)
+        CharacterPickViewModel::class.java -> CharacterPickViewModel(repo)
         RewardsViewModel::class.java -> RewardsViewModel(repo, tasks)
         ShowcaseViewModel::class.java -> ShowcaseViewModel(repo, tasks)
         else -> error("unknown ViewModel")

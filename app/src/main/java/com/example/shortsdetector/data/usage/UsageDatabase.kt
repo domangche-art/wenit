@@ -46,6 +46,7 @@ class UsageDatabase private constructor(context: Context) :
         if (oldVersion < 8) UsageSchema.MIGRATE_7_TO_8.forEach(db::execSQL)
         if (oldVersion < 9) UsageSchema.MIGRATE_8_TO_9.forEach(db::execSQL)
         if (oldVersion < 10) UsageSchema.MIGRATE_9_TO_10.forEach(db::execSQL)
+        if (oldVersion < 11) UsageSchema.MIGRATE_10_TO_11.forEach(db::execSQL)
     }
 
     override fun insertAllowanceUse(record: AllowanceUseRecord) {
@@ -221,6 +222,7 @@ class UsageDatabase private constructor(context: Context) :
             put("shorts_return_ms", record.shortsReturnMs)
             put("app_return_ms", record.appReturnMs)
             put("dismiss_method", record.dismissal?.name)
+            put("character_id", record.characterId)
         }
         writableDatabase.insertWithOnConflict("interventions", null, v, SQLiteDatabase.CONFLICT_IGNORE)
     }
@@ -416,6 +418,7 @@ class UsageDatabase private constructor(context: Context) :
         shortsReturnMs = longOrNull("shorts_return_ms"),
         appReturnMs = longOrNull("app_return_ms"),
         dismissal = str("dismiss_method")?.let { d -> CharacterDismissal.entries.firstOrNull { it.name == d } },
+        characterId = str("character_id"),
         isDemo = long("is_demo") != 0L,
         isSeed = long("is_seed") != 0L
     )

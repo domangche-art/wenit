@@ -25,10 +25,11 @@ package com.example.shortsdetector.data.usage
  * interventions.outcome 문자열이라 스키마 변경이 없다.
  *
  * 버전 10: interventions 에 dismiss_method(Lv.4 캐릭터를 치운 방법, 15단계) 추가. nullable 이고 기존 기록은 null 이다.
+ * 버전 11: interventions 에 character_id(개입 시점에 고른 캐릭터 id, 16단계) 추가. nullable 이고 기존 기록은 null(모름)이다.
  */
 object UsageSchema {
 
-    const val VERSION = 10
+    const val VERSION = 11
 
     /** 복귀를 지켜보지 않는 기록의 표시. 버전 7 이전 기록에만 쓴다. */
     const val RETURN_UNKNOWN = "UNKNOWN"
@@ -167,5 +168,9 @@ object UsageSchema {
 
     val MIGRATE_9_TO_10: List<String> = listOf(
         "ALTER TABLE interventions ADD COLUMN dismiss_method TEXT"
+    )
+
+    val MIGRATE_10_TO_11: List<String> = listOf(
+        "ALTER TABLE interventions ADD COLUMN character_id TEXT"
     )
 }

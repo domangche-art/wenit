@@ -223,6 +223,7 @@ class PolicyAgent(
             - levelRates 는 단계별 멈춤률·계속 보기율입니다. 계속 보기율이 높은 단계는 효과가 약하다고 봅니다.
             - returnAfterStop 의 within10MinRate 가 높거나 medianReturnMs 가 짧으면 멈춰도 금방 돌아옵니다. 멈춘 횟수만 보고 완화하지 말고 시작 단계를 유지하거나 올립니다.
             - returnAfterStop 에서 notReturned 가 많고 재방문이 드물면 개입이 잘 듣고 있습니다. 완화해도 됩니다.
+            - lv4ByCharacter 는 화면을 막는 캐릭터(kind 다정함, chatty 수다스러움, fierce 까칠함, trudge 지침)별 Lv.4 멈춤률입니다. 참고만 하고, 캐릭터는 사용자가 고르는 값이라 바꾸지 않습니다.
             - lv2ReasonsByTimeSlot 은 시간대별 이유입니다. 많은 이유가 있는 시간대를 lv2Question 에 반영합니다.
 
             문구:

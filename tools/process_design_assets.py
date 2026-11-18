@@ -9,7 +9,9 @@
   외곽선 바깥 2px 띠는 흰색과 섞인 색을 풀어(color-to-alpha) 흰 테두리가 남지 않게 한다.
 - 배지(13단계): 원형 동전만 잘라 바깥을 투명하게 하고 512px WebP(badge_common.webp)로 만든다. 자세한 방법은 make_badge.
 
-두 번째 인자로 하나만 만들 수 있다(icon / character / badge). 생략하면 모두 만든다.
+- 캐릭터 3종(16단계): character_chatty / character_fierce / character_trudge 를 같은 방식으로 만든다(밝은 영역 기준만 다름).
+
+두 번째 인자로 하나만 만들 수 있다(icon / character / characters / badge / tiers). 생략하면 모두 만든다.
 """
 import os
 import sys
@@ -112,14 +114,61 @@ def make_icon(preview_dir: str) -> dict:
     return {"background": hex_bg, "crop": ICON_CROP}
 
 
+def light_original(rgb: np.ndarray) -> np.ndarray:
+    """11단계 캐릭터(다정이) 원본의 밝은 영역: 흰 배경, 연한 그림자, 종이 질감."""
+    return (rgb.min(axis=2) >= 200) & (rgb[..., 0] >= 235)
+
+
+def light_low_saturation(rgb: np.ndarray) -> np.ndarray:
+    """
+    16단계 캐릭터 3종의 밝은 영역: 흰 배경(약 253~255)과 발밑 그림자(최솟값 약 224~231, 채도 0.17 이하).
+    펭귄 그림자는 푸른빛이라 R 이 227 까지 내려가 [light_original] 의 R >= 235 로는 남는다. 그래서 밝기와 채도로 고른다.
+    쥐의 회색 몸(최솟값 180~200)은 밝기에서, 앵무새 날개의 노랑·빨강·파랑은 채도에서 빠진다.
+    """
+    mx, mn = rgb.max(axis=2), rgb.min(axis=2)
+    return (mn >= 205) & ((mx - mn) / np.maximum(mx, 1) < 0.2)
+
+
 def make_character(preview_dir: str) -> dict:
-    rgb = np.asarray(Image.open(CHAR_SRC).convert("RGB"), dtype=np.float64)
+    return cut_character(CHAR_SRC, "wenit_character", light_original, preview_dir, "character")
+
+
+def character_source(name: str) -> str:
+    """파일 이름 끝이 .png 또는 .png.png 일 수 있다."""
+    for ext in (".png", ".png.png"):
+        p = os.path.join(ASSETS, name + ext)
+        if os.path.exists(p):
+            return p
+    sys.exit(f"design-assets/{name}.png 없음")
+
+
+# 16단계: 고를 수 있는 캐릭터 3종(다정이는 wenit_character 를 그대로 쓴다). (원본 이름, 리소스 이름)
+EXTRA_CHARACTERS = [
+    ("character_chatty", "character_chatty"),   # 수다쟁이(앵무새)
+    ("character_fierce", "character_fierce"),   # 표독이(펭귄)
+    ("character_trudge", "character_trudge"),   # 터덜이(쥐)
+]
+
+
+def make_extra_characters(preview_dir: str) -> dict:
+    return {
+        res: cut_character(character_source(src), res, light_low_saturation, preview_dir, res)
+        for src, res in EXTRA_CHARACTERS
+    }
+
+
+def cut_character(src_path: str, res_name: str, light_fn, preview_dir: str, preview_prefix: str) -> dict:
+    """
+    흰 배경과 그림자를 지우고 긴 변 512px WebP 로 만든다(11단계 방식).
+    바깥 가장자리와 이어진 밝은 영역만 지우므로 외곽선 안쪽의 흰 몸통(앵무새·펭귄 배)은 남고,
+    외곽선에 붙은 가는 선(쥐의 수염·꼬리)은 가장 큰 덩어리의 일부라 남는다.
+    """
+    rgb = np.asarray(Image.open(src_path).convert("RGB"), dtype=np.float64)
     h, w, _ = rgb.shape
-    mn = rgb.min(axis=2)
 
     # 밝은 영역(흰 배경, 연한 그림자, 종이 질감). 몸 안쪽의 밝은 부분도 여기에 들지만, 바깥 가장자리와
     # 이어진 덩어리만 지우므로 갈색 외곽선 안쪽은 남는다.
-    light = (mn >= 200) & (rgb[..., 0] >= 235)
+    light = light_fn(rgb)
     labels, _ = ndimage.label(light)
     border = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
     border = border[border != 0]
@@ -156,21 +205,25 @@ def make_character(preview_dir: str) -> dict:
 
     out_dir = os.path.join(RES, "drawable-nodpi")
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "wenit_character.webp")
+    path = os.path.join(out_dir, res_name + ".webp")
     im.save(path, "WEBP", lossless=True, quality=100, method=6)
 
     # 미리보기(프로젝트 밖): 어두운·밝은·중간 배경, 그리고 발과 머리 가장자리 3배 확대.
     for name, color in (("dark", (18, 18, 18)), ("light", (242, 242, 242)), ("blue", (90, 179, 223))):
         bg = Image.new("RGBA", (im.size[0] + 64, im.size[1] + 64), color + (255,))
         bg.alpha_composite(im, (32, 32))
-        bg.save(os.path.join(preview_dir, f"character_on_{name}.png"))
+        bg.save(os.path.join(preview_dir, f"{preview_prefix}_on_{name}.png"))
         zw, zh = im.size
         for part, box in (("feet", (0, int(zh * 0.72), zw, zh)), ("top", (int(zw * 0.2), 0, int(zw * 0.8), int(zh * 0.3)))):
             crop = bg.crop((box[0] + 32, box[1] + 32, box[2] + 32, box[3] + 32))
             crop.resize((crop.size[0] * 3, crop.size[1] * 3), Image.NEAREST).save(
-                os.path.join(preview_dir, f"character_zoom_{part}_on_{name}.png"))
+                os.path.join(preview_dir, f"{preview_prefix}_zoom_{part}_on_{name}.png"))
     removed = float(outside.mean())
-    return {"size": im.size, "bbox": bbox, "removed_ratio": round(removed, 3), "path": path}
+    kept = (~outside)
+    return {
+        "source": os.path.basename(src_path), "size": im.size, "bbox": bbox, "removed_ratio": round(removed, 3),
+        "kept_light_inside_px": int((light & kept).sum()), "bytes": os.path.getsize(path), "path": path
+    }
 
 
 def badge_source() -> str:
@@ -341,7 +394,7 @@ def make_tier_badges(preview_dir: str) -> dict:
 
 def main():
     if len(sys.argv) not in (2, 3):
-        sys.exit("usage: process_design_assets.py <preview_dir outside the project> [icon|character|badge|tiers|all]")
+        sys.exit("usage: process_design_assets.py <preview_dir outside the project> [icon|character|characters|badge|tiers|all]")
     preview_dir = os.path.abspath(sys.argv[1])
     if preview_dir.startswith(ROOT):
         sys.exit("미리보기는 프로젝트 밖에 둔다")
@@ -351,6 +404,8 @@ def main():
         print("icon", make_icon(preview_dir))
     if which in ("character", "all"):
         print("character", make_character(preview_dir))
+    if which in ("characters", "all"):
+        print("characters", make_extra_characters(preview_dir))
     if which in ("badge", "all"):
         print("badge", make_badge(preview_dir))
     if which in ("tiers", "all"):
